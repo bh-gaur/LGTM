@@ -1,0 +1,75 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: python-app
+  labels:
+    app: python-app
+    {{- include "lgtm-stack.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.pythonApp.replicaCount }}
+  selector:
+    matchLabels:
+      app: python-app
+  template:
+    metadata:
+      labels:
+        app: python-app
+        {{- include "lgtm-stack.selectorLabels" . | nindent 8 }}
+    spec:
+      containers:
+        - name: python-app
+          image: "{{ .Values.pythonApp.image.repository }}:{{ .Values.pythonApp.image.tag }}"
+          imagePullPolicy: {{ .Values.pythonApp.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.pythonApp.service.port }}
+              protocol: TCP
+          env:
+            - name: PORT
+              value: "{{ .Values.pythonApp.service.port }}"
+            - name: OTEL_SERVICE_NAME
+              value: "python-app"
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              value: "http://alloy:4318"
+            - name: OTEL_EXPORTER_OTLP_PROTOCOL
+              value: "http/protobuf"
+            - name: OTEL_LOGS_EXPORTER
+              value: "otlp"
+            - name: OTEL_METRICS_EXPORTER
+              value: "otlp"
+            - name: OTEL_TRACES_EXPORTER
+              value: "otlp"
+            - name: OTEL_METRIC_EXPORT_INTERVAL
+              value: "10000"
+            - name: OTEL_METRICS_EXEMPLAR_FILTER
+              value: "always_on"
+          livenessProbe:
+            httpGet:
+              path: /
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 10
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: python-app
+  labels:
+    app: python-app
+    {{- include "lgtm-stack.labels" . | nindent 4 }}
+spec:
+  type: {{ .Values.pythonApp.service.type }}
+  ports:
+    - port: {{ .Values.pythonApp.service.port }}
+      targetPort: http
+      protocol: TCP
+      name: http
+  selector:
+    app: python-app
+    {{- include "lgtm-stack.selectorLabels" . | nindent 4 }}

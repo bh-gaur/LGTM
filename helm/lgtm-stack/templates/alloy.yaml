@@ -1,0 +1,223 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: alloy-sa
+  labels:
+    {{- include "lgtm-stack.labels" . | nindent 4 }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: alloy-cr
+spec:
+  rules:
+    - apiGroups: [""]
+      resources:
+        - namespaces
+        - pods
+        - services
+        - endpoints
+      verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: alloy-crb
+subjects:
+  - kind: ServiceAccount
+    name: alloy-sa
+    namespace: {{ .Release.Namespace }}
+roleRef:
+  kind: ClusterRole
+  name: alloy-cr
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: alloy-config
+  labels:
+    {{- include "lgtm-stack.labels" . | nindent 4 }}
+data:
+  config.alloy: |
+    // 1. Receive OTLP data (gRPC and HTTP) from apps
+    otelcol.receiver.otlp "default" {
+      grpc { endpoint = "0.0.0.0:4317" }
+      http { endpoint = "0.0.0.0:4318" }
+
+      output {
+        metrics = [otelcol.processor.batch.default.input]
+        logs    = [otelcol.processor.batch.default.input]
+        traces  = [otelcol.processor.batch.default.input]
+      }
+    }
+
+    // 2. Batch processor to optimize data transmission
+    otelcol.processor.batch "default" {
+      output {
+        metrics = [otelcol.exporter.otlphttp.mimir.input]
+        logs    = [otelcol.exporter.loki.loki_out.input]
+        traces  = [otelcol.exporter.otlp.tempo.input]
+      }
+    }
+
+    // 3. Exporters
+    otelcol.exporter.otlphttp "mimir" {
+      client {
+        endpoint = "http://mimir:9009/otlp"
+        tls { insecure = true }
+      }
+    }
+
+    prometheus.remote_write "mimir" {
+      endpoint {
+        url = "http://mimir:9009/api/v1/push"
+        send_exemplars = true
+      }
+    }
+
+    otelcol.exporter.loki "loki_out" {
+      forward_to = [loki.write.loki_endpoint.receiver]
+    }
+
+    loki.write "loki_endpoint" {
+      endpoint {
+        url = "http://loki:3100/loki/api/v1/push"
+      }
+    }
+
+    otelcol.exporter.otlp "tempo" {
+      client {
+        endpoint = "tempo:4317"
+        tls { insecure = true }
+      }
+    }
+
+    // 4. Kubernetes Service Discovery & Pod Scraping
+    discovery.kubernetes "pods" {
+      role = "pod"
+    }
+
+    discovery.relabel "node_app" {
+      targets = discovery.kubernetes.pods.targets
+
+      rule {
+        source_labels = ["__meta_kubernetes_pod_annotation_prometheus_io_scrape"]
+        action = "keep"
+        regex = "true"
+      }
+
+      rule {
+        source_labels = ["__meta_kubernetes_pod_annotation_prometheus_io_path"]
+        action = "replace"
+        target_label = "__metrics_path__"
+        regex = "(.+)"
+      }
+
+      rule {
+        source_labels = ["__address__", "__meta_kubernetes_pod_annotation_prometheus_io_port"]
+        action = "replace"
+        regex = "([^:]+)(?::\\d+)?;(\\d+)"
+        replacement = "$1:$2"
+        target_label = "__address__"
+      }
+
+      rule {
+        source_labels = ["__meta_kubernetes_namespace"]
+        action = "replace"
+        target_label = "namespace"
+      }
+
+      rule {
+        source_labels = ["__meta_kubernetes_pod_name"]
+        action = "replace"
+        target_label = "pod"
+      }
+    }
+
+    prometheus.scrape "k8s_pods" {
+      targets    = discovery.relabel.node_app.targets
+      forward_to = [prometheus.remote_write.mimir.receiver]
+    }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: alloy
+  labels:
+    {{- include "lgtm-stack.labels" . | nindent 4 }}
+spec:
+  ports:
+    - name: http
+      port: 12345
+      targetPort: 12345
+      protocol: TCP
+    - name: otlp-grpc
+      port: 4317
+      targetPort: 4317
+      protocol: TCP
+    - name: otlp-http
+      port: 4318
+      targetPort: 4318
+      protocol: TCP
+  selector:
+    app: alloy
+    {{- include "lgtm-stack.selectorLabels" . | nindent 4 }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: alloy
+  labels:
+    {{- include "lgtm-stack.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.alloy.replicaCount }}
+  selector:
+    matchLabels:
+      app: alloy
+  template:
+    metadata:
+      labels:
+        app: alloy
+        {{- include "lgtm-stack.selectorLabels" . | nindent 8 }}
+    spec:
+      serviceAccountName: alloy-sa
+      containers:
+        - name: alloy
+          image: "{{ .Values.alloy.image.repository }}:{{ .Values.alloy.image.tag }}"
+          imagePullPolicy: {{ .Values.alloy.image.pullPolicy }}
+          command:
+            - /bin/alloy
+            - run
+            - /etc/alloy/config.alloy
+            - --storage.path=/tmp/alloy/data
+            - --server.http.listen-addr=0.0.0.0:12345
+          ports:
+            - name: http
+              containerPort: 12345
+              protocol: TCP
+            - name: otlp-grpc
+              containerPort: 4317
+              protocol: TCP
+            - name: otlp-http
+              containerPort: 4318
+              protocol: TCP
+          volumeMounts:
+            - name: config
+              mountPath: /etc/alloy
+          livenessProbe:
+            httpGet:
+              path: /-/ready
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /-/ready
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 10
+      volumes:
+        - name: config
+          configMap:
+            name: alloy-config

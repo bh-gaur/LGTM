@@ -1,0 +1,120 @@
+version: '3.8'
+
+services:
+  # 1. Visualization
+  grafana:
+    image: grafana/grafana:10.4.2
+    container_name: lgtm-grafana
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_AUTH_ANONYMOUS_ENABLED=true
+      - GF_AUTH_ANONYMOUS_ORG_ROLE=Admin
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning
+    depends_on:
+      - mimir
+      - loki
+      - tempo
+    networks:
+      - lgtm
+
+  # 2. Metrics Backend
+  mimir:
+    image: grafana/mimir:2.12.0
+    container_name: lgtm-mimir
+    command: -config.file=/etc/mimir/mimir-config.yaml -target=all
+    ports:
+      - "9009:9009"
+    volumes:
+      - ./mimir:/etc/mimir
+    networks:
+      - lgtm
+
+  # 3. Logs Backend
+  loki:
+    image: grafana/loki:2.9.8
+    container_name: lgtm-loki
+    command: -config.file=/etc/loki/loki-config.yaml -target=all
+    ports:
+      - "3100:3100"
+    volumes:
+      - ./loki:/etc/loki
+    networks:
+      - lgtm
+
+  # 4. Traces Backend
+  tempo:
+    image: grafana/tempo:2.4.1
+    container_name: lgtm-tempo
+    command: -config.file=/etc/tempo/tempo-config.yaml -target=all
+    ports:
+      - "3200:3200"
+    volumes:
+      - ./tempo:/etc/tempo
+    networks:
+      - lgtm
+
+  # 5. Telemetry Collector (Alloy)
+  alloy:
+    image: grafana/alloy:v1.1.0
+    container_name: lgtm-alloy
+    command: run /etc/alloy/config.alloy --storage.path=/tmp/alloy/data --server.http.listen-addr=0.0.0.0:12345
+    ports:
+      - "12345:12345" # Alloy UI
+      - "4317:4317" # OTLP gRPC
+      - "4318:4318" # OTLP HTTP
+    volumes:
+      - ./alloy:/etc/alloy
+    depends_on:
+      - mimir
+      - loki
+      - tempo
+    networks:
+      - lgtm
+
+  # 6. Python Application
+  python-app:
+    build:
+      context: ./apps/python-app
+    container_name: python-app
+    command: python app.py
+    ports:
+      - "5000:5000"
+    environment:
+      - PORT=5000
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://alloy:4318
+      - OTEL_EXPORTER_OTLP_PROTOCOL=http/protobuf
+      - OTEL_SERVICE_NAME=python-app
+      - OTEL_LOGS_EXPORTER=otlp
+      - OTEL_METRICS_EXPORTER=otlp
+      - OTEL_TRACES_EXPORTER=otlp
+      - OTEL_METRIC_EXPORT_INTERVAL=10000
+      - OTEL_METRICS_EXEMPLAR_FILTER=always_on
+    depends_on:
+      - alloy
+    networks:
+      - lgtm
+
+  # 7. Node.js Application
+  node-app:
+    build:
+      context: ./apps/node-app
+    container_name: node-app
+    ports:
+      - "8081:8081"
+    environment:
+      - PORT=8081
+      - OTEL_SERVICE_NAME=node-app
+      - OTEL_METRICS_EXEMPLAR_FILTER=always_on
+    depends_on:
+      - python-app
+      - alloy
+    networks:
+      - lgtm
+
+networks:
+  lgtm:
+    name: lgtm-network
+    driver: bridge

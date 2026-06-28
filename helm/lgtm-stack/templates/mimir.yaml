@@ -1,0 +1,137 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: mimir-config
+  labels:
+    {{- include "lgtm-stack.labels" . | nindent 4 }}
+data:
+  mimir-config.yaml: |
+    multitenancy_enabled: false
+
+    server:
+      http_listen_port: 9009
+      grpc_listen_port: 9095
+
+    common:
+      storage:
+        backend: filesystem
+        filesystem:
+          dir: /data/mimir
+
+    blocks_storage:
+      backend: filesystem
+      filesystem:
+        dir: /data/mimir/blocks
+
+    ruler_storage:
+      backend: local
+      local:
+        directory: /data/mimir/rules
+
+    alertmanager_storage:
+      backend: local
+      local:
+        path: /data/mimir/alertmanager
+
+    limits:
+      max_label_names_per_series: 30
+      max_global_exemplars_per_user: 100000
+
+    memberlist:
+      join_members: []
+
+    ingester:
+      ring:
+        replication_factor: 1
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mimir
+  labels:
+    {{- include "lgtm-stack.labels" . | nindent 4 }}
+spec:
+  ports:
+    - name: http
+      port: 9009
+      targetPort: 9009
+      protocol: TCP
+    - name: grpc
+      port: 9095
+      targetPort: 9095
+      protocol: TCP
+  selector:
+    app: mimir
+    {{- include "lgtm-stack.selectorLabels" . | nindent 4 }}
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: mimir
+  labels:
+    {{- include "lgtm-stack.labels" . | nindent 4 }}
+spec:
+  serviceName: mimir
+  replicas: 1
+  selector:
+    matchLabels:
+      app: mimir
+      {{- include "lgtm-stack.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        app: mimir
+        {{- include "lgtm-stack.selectorLabels" . | nindent 8 }}
+    spec:
+      containers:
+        - name: mimir
+          image: "{{ .Values.mimir.image.repository }}:{{ .Values.mimir.image.tag }}"
+          imagePullPolicy: {{ .Values.mimir.image.pullPolicy }}
+          args:
+            - "-config.file=/etc/mimir/mimir-config.yaml"
+            - "-target=all"
+          ports:
+            - name: http
+              containerPort: 9009
+              protocol: TCP
+            - name: grpc
+              containerPort: 9095
+              protocol: TCP
+          volumeMounts:
+            - name: config
+              mountPath: /etc/mimir
+            - name: data
+              mountPath: /data
+          livenessProbe:
+            httpGet:
+              path: /ready
+              port: http
+            initialDelaySeconds: 30
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: http
+            initialDelaySeconds: 30
+            periodSeconds: 10
+      volumes:
+        - name: config
+          configMap:
+            name: mimir-config
+  {{- if not .Values.mimir.persistence.enabled }}
+        - name: data
+          emptyDir: {}
+  {{- else }}
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes:
+          - "ReadWriteOnce"
+        {{- if .Values.global.storageClass }}
+        storageClassName: {{ .Values.global.storageClass | quote }}
+        {{- end }}
+        resources:
+          requests:
+            storage: {{ .Values.mimir.persistence.size | quote }}
+  {{- end }}

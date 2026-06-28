@@ -1,0 +1,125 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: tempo-config
+  labels:
+    {{- include "lgtm-stack.labels" . | nindent 4 }}
+data:
+  tempo-config.yaml: |
+    server:
+      http_listen_port: 3200
+      grpc_listen_port: 9097
+
+    distributor:
+      receivers:
+        otlp:
+          protocols:
+            http:
+            grpc:
+
+    storage:
+      trace:
+        backend: local
+        wal:
+          path: /data/tempo/wal
+        local:
+          path: /data/tempo/blocks
+
+    compactor:
+      compaction:
+        compaction_window: 1h
+        max_compaction_objects: 1000000
+        block_retention: 1h
+        compacted_block_retention: 10m
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: tempo
+  labels:
+    {{- include "lgtm-stack.labels" . | nindent 4 }}
+spec:
+  ports:
+    - name: http
+      port: 3200
+      targetPort: 3200
+      protocol: TCP
+    - name: grpc
+      port: 9097
+      targetPort: 9097
+      protocol: TCP
+  selector:
+    app: tempo
+    {{- include "lgtm-stack.selectorLabels" . | nindent 4 }}
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: tempo
+  labels:
+    {{- include "lgtm-stack.labels" . | nindent 4 }}
+spec:
+  serviceName: tempo
+  replicas: 1
+  selector:
+    matchLabels:
+      app: tempo
+      {{- include "lgtm-stack.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        app: tempo
+        {{- include "lgtm-stack.selectorLabels" . | nindent 8 }}
+    spec:
+      containers:
+        - name: tempo
+          image: "{{ .Values.tempo.image.repository }}:{{ .Values.tempo.image.tag }}"
+          imagePullPolicy: {{ .Values.tempo.image.pullPolicy }}
+          args:
+            - "-config.file=/etc/tempo/tempo-config.yaml"
+            - "-target=all"
+          ports:
+            - name: http
+              containerPort: 3200
+              protocol: TCP
+            - name: grpc
+              containerPort: 9097
+              protocol: TCP
+          volumeMounts:
+            - name: config
+              mountPath: /etc/tempo
+            - name: data
+              mountPath: /data
+          livenessProbe:
+            httpGet:
+              path: /ready
+              port: http
+            initialDelaySeconds: 15
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: http
+            initialDelaySeconds: 15
+            periodSeconds: 10
+      volumes:
+        - name: config
+          configMap:
+            name: tempo-config
+  {{- if not .Values.tempo.persistence.enabled }}
+        - name: data
+          emptyDir: {}
+  {{- else }}
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes:
+          - "ReadWriteOnce"
+        {{- if .Values.global.storageClass }}
+        storageClassName: {{ .Values.global.storageClass | quote }}
+        {{- end }}
+        resources:
+          requests:
+            storage: {{ .Values.tempo.persistence.size | quote }}
+  {{- end }}
