@@ -2,7 +2,7 @@
 global:
   # The StorageClass to use for persistent volumes (e.g. "gp3" on AWS EKS).
   # If empty or null, the Kubernetes cluster's default StorageClass is used.
-  storageClass: ""
+  storageClass: "local-path"
 
 # Node.js Application configuration
 nodeApp:
@@ -57,7 +57,7 @@ loki:
     pullPolicy: "IfNotPresent"
   persistence:
     enabled: true
-    size: "2Gi"
+    size: "5Gi"
 
 # Mimir metrics database configuration
 mimir:
@@ -67,7 +67,7 @@ mimir:
     pullPolicy: "IfNotPresent"
   persistence:
     enabled: true
-    size: "2Gi"
+    size: "5Gi"
 
 # Tempo traces database configuration
 tempo:
@@ -77,4 +77,4 @@ tempo:
     pullPolicy: "IfNotPresent"
   persistence:
     enabled: true
-    size: "4Gi"
+    size: "10Gi"

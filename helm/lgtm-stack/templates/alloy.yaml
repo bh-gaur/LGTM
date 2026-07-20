@@ -136,7 +136,7 @@ data:
     }
 
     prometheus.scrape "k8s_pods" {
-      targets    = discovery.relabel.node_app.targets
+      targets    = discovery.relabel.node_app.output
       forward_to = [prometheus.remote_write.mimir.receiver]
     }
 ---

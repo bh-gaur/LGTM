@@ -77,3 +77,26 @@ helm lint ./helm/lgtm-stack
 # Render YAML files dry-run
 helm template lgtm ./helm/lgtm-stack
 ```
+
+## If running on Killercoda
+
+```bash
+kubectl create secret docker-registry dockerhub-secret \
+  --docker-server=https://docker.io \
+  --docker-username=<docker-username> \
+  --docker-password=<docker-token> \
+  --docker-email=<docker-email> 
+
+helm install lgtm ./helm/lgtm-stack \
+  --set global.storageClass="local-path" \
+  --set nodeApp.image.repository="<docker-username>/lgtm-node-app" \
+  --set pythonApp.image.repository="<docker-username>/lgtm-python-app"
+```
+
+### For port exposing
+
+```
+change service type to node port and update node ports in killercoda ui to access grafana , node-app, python-app
+
+```
+
