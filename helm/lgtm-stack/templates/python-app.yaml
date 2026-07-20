@@ -18,7 +18,7 @@ spec:
     spec:
       containers:
         - name: python-app
-          image: "{{ .Values.pythonApp.image.repository }}:{{ .Values.pythonApp.image.tag }}"
+          image: "{{ .Values.pythonApp.image.repository }}{{ if not (contains ":" .Values.pythonApp.image.repository) }}:{{ .Values.pythonApp.image.tag }}{{ end }}"
           imagePullPolicy: {{ .Values.pythonApp.image.pullPolicy }}
           ports:
             - name: http

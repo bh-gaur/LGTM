@@ -184,7 +184,7 @@ spec:
       serviceAccountName: alloy-sa
       containers:
         - name: alloy
-          image: "{{ .Values.alloy.image.repository }}:{{ .Values.alloy.image.tag }}"
+          image: "{{ .Values.alloy.image.repository }}{{ if not (contains ":" .Values.alloy.image.repository) }}:{{ .Values.alloy.image.tag }}{{ end }}"
           imagePullPolicy: {{ .Values.alloy.image.pullPolicy }}
           command:
             - /bin/alloy

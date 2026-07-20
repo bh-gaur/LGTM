@@ -85,7 +85,7 @@ spec:
     spec:
       containers:
         - name: mimir
-          image: "{{ .Values.mimir.image.repository }}:{{ .Values.mimir.image.tag }}"
+          image: "{{ .Values.mimir.image.repository }}{{ if not (contains ":" .Values.mimir.image.repository) }}:{{ .Values.mimir.image.tag }}{{ end }}"
           imagePullPolicy: {{ .Values.mimir.image.pullPolicy }}
           args:
             - "-config.file=/etc/mimir/mimir-config.yaml"

@@ -23,7 +23,7 @@ spec:
     spec:
       containers:
         - name: node-app
-          image: "{{ .Values.nodeApp.image.repository }}:{{ .Values.nodeApp.image.tag }}"
+          image: "{{ .Values.nodeApp.image.repository }}{{ if not (contains ":" .Values.nodeApp.image.repository) }}:{{ .Values.nodeApp.image.tag }}{{ end }}"
           imagePullPolicy: {{ .Values.nodeApp.image.pullPolicy }}
           ports:
             - name: http

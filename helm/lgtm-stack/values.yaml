@@ -57,7 +57,7 @@ loki:
     pullPolicy: "IfNotPresent"
   persistence:
     enabled: true
-    size: "10Gi"
+    size: "2Gi"
 
 # Mimir metrics database configuration
 mimir:
@@ -67,7 +67,7 @@ mimir:
     pullPolicy: "IfNotPresent"
   persistence:
     enabled: true
-    size: "10Gi"
+    size: "2Gi"
 
 # Tempo traces database configuration
 tempo:
@@ -77,4 +77,4 @@ tempo:
     pullPolicy: "IfNotPresent"
   persistence:
     enabled: true
-    size: "10Gi"
+    size: "4Gi"
