@@ -50,6 +50,8 @@ spec:
               port: http
             initialDelaySeconds: 5
             periodSeconds: 10
+      imagePullSecrets:
+        - name: dockerhub-secret
 ---
 apiVersion: v1
 kind: Service
