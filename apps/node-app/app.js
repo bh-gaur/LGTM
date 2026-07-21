@@ -30,12 +30,17 @@ const PYTHON_SERVICE_URL = process.env.PYTHON_SERVICE_URL || 'http://python-app:
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 /**
- * High-concurrency HTTP helper using native fetch with keepalive socket pooling.
+ * High-concurrency HTTP helper with automatic W3C Trace Context propagation
+ * to ensure distributed tracing across microservices (Node.js -> Python).
  */
 async function fetchJson(url, options = {}) {
+  const headers = options.headers ? { ...options.headers } : {};
+  api.propagation.inject(api.context.active(), headers);
+
   const fetchOptions = {
     keepalive: true,
-    ...options
+    ...options,
+    headers
   };
   const response = await fetch(url, fetchOptions);
   let data;

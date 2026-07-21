@@ -23,6 +23,8 @@ if (isObservabilityEnabled) {
   const otlpTracesEndpoint = process.env.OTEL_EXPORTER_OTLP_TRACES_ENDPOINT || `${otlpEndpoint}/v1/traces`;
   const otlpMetricsEndpoint = process.env.OTEL_EXPORTER_OTLP_METRICS_ENDPOINT || `${otlpEndpoint}/v1/metrics`;
 
+  const { W3CTraceContextPropagator } = require('@opentelemetry/core');
+
   // 1. Configure OpenTelemetry LoggerProvider (Batch processing for high performance)
   const loggerProvider = new LoggerProvider({
     processors: [
@@ -36,6 +38,7 @@ if (isObservabilityEnabled) {
   // 2. Initialize OpenTelemetry NodeSDK
   const sdk = new NodeSDK({
     serviceName: process.env.OTEL_SERVICE_NAME || 'node-app',
+    textMapPropagator: new W3CTraceContextPropagator(),
     traceExporter: new OTLPTraceExporter({
       url: otlpTracesEndpoint,
     }),

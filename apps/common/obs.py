@@ -25,7 +25,10 @@ if is_obs_enabled:
     from opentelemetry.exporter.otlp.proto.http.metric_exporter import OTLPMetricExporter
     from opentelemetry.sdk.metrics._internal.exemplar import TraceBasedExemplarFilter
     from opentelemetry.instrumentation.flask import FlaskInstrumentor
-    from opentelemetry.instrumentation.psycopg2 import Psycopg2Instrumentor
+    from opentelemetry.trace.propagation.tracecontext import TraceContextTextMapPropagator
+    from opentelemetry.propagate import set_global_textmap
+
+    set_global_textmap(TraceContextTextMapPropagator())
 
     otlp_endpoint = os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT", "http://alloy:4318")
     resource = Resource.create(attributes={"service.name": service_name})
