@@ -27,6 +27,18 @@ spec:
           env:
             - name: PORT
               value: "{{ .Values.pythonApp.service.port }}"
+            - name: ENABLE_OBSERVABILITY
+              value: "{{ .Values.global.enableObservability }}"
+            - name: POSTGRES_HOST
+              value: "postgres"
+            - name: POSTGRES_PORT
+              value: "5432"
+            - name: POSTGRES_DB
+              value: "{{ .Values.postgres.database }}"
+            - name: POSTGRES_USER
+              value: "{{ .Values.postgres.user }}"
+            - name: POSTGRES_PASSWORD
+              value: "{{ .Values.postgres.password }}"
             - name: OTEL_SERVICE_NAME
               value: "python-app"
             - name: OTEL_EXPORTER_OTLP_ENDPOINT

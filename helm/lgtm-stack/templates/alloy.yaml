@@ -48,11 +48,36 @@ data:
       output {
         metrics = [otelcol.processor.batch.default.input]
         logs    = [otelcol.processor.batch.default.input]
-        traces  = [otelcol.processor.batch.default.input]
+        traces  = [
+          otelcol.processor.batch.default.input,
+          otelcol.connector.spanmetrics.default.input,
+        ]
       }
     }
 
-    // 2. Batch processor to optimize data transmission
+    // 2. Spanmetrics Connector (derives RED metrics from trace spans)
+    otelcol.connector.spanmetrics "default" {
+      namespace = "traces.spanmetrics"
+
+      histogram {
+        explicit {
+          buckets = ["5ms", "10ms", "25ms", "50ms", "100ms", "250ms", "500ms", "1s", "2.5s", "5s", "10s"]
+        }
+      }
+
+      dimension {
+        name = "http.method"
+      }
+      dimension {
+        name = "http.status_code"
+      }
+
+      output {
+        metrics = [otelcol.processor.batch.default.input]
+      }
+    }
+
+    // 3. Batch processor to optimize data transmission
     otelcol.processor.batch "default" {
       output {
         metrics = [otelcol.exporter.otlphttp.mimir.input]
@@ -64,14 +89,14 @@ data:
     // 3. Exporters
     otelcol.exporter.otlphttp "mimir" {
       client {
-        endpoint = "http://mimir:9009/otlp"
+        endpoint = "http://mimir:{{ .Values.mimir.service.port }}/otlp"
         tls { insecure = true }
       }
     }
 
     prometheus.remote_write "mimir" {
       endpoint {
-        url = "http://mimir:9009/api/v1/push"
+        url = "http://mimir:{{ .Values.mimir.service.port }}/api/v1/push"
         send_exemplars = true
       }
     }
@@ -82,13 +107,13 @@ data:
 
     loki.write "loki_endpoint" {
       endpoint {
-        url = "http://loki:3100/loki/api/v1/push"
+        url = "http://loki:{{ .Values.loki.service.port }}/loki/api/v1/push"
       }
     }
 
     otelcol.exporter.otlp "tempo" {
       client {
-        endpoint = "tempo:4317"
+        endpoint = "tempo:{{ .Values.tempo.service.otlpPort | default 4317 }}"
         tls { insecure = true }
       }
     }

@@ -1,76 +1,164 @@
-# LGTM Telemetry Stack & Microservices
+# ⚡ LGTM Observability Mesh & Microservices Architecture
 
-This repository contains a containerized demonstration of the **LGTM (Loki, Grafana, Tempo, Mimir)** telemetry stack integrated with a Node.js and Python microservice architecture. It demonstrates clean logs-to-traces correlations, metrics-to-traces exemplars, and dark-themed Swagger API interactive documentations.
+A production-ready microservice demonstration of the **Grafana LGTM (Loki, Grafana, Tempo, Mimir) Stack** combined with **Grafana Alloy** telemetry collector, **PostgreSQL** database infrastructure, **Node.js Gateway**, and **Python Analytical Service**.
 
----
-
-## Repository Structure
-
-- `apps/node-app/`: Node.js Express application (entrypoint API). Exposes OpenAPI docs on `/docs` and custom OpenMetrics exemplars on `/metrics` via `prom-client`.
-- `apps/python-app/`: Python Flask service (downstream API). Exposes OpenAPI docs on `/docs` and uses the native OpenTelemetry SDK to write metrics and traces.
-- `alloy/`: Scraper configuration for Grafana Alloy telemetry agent.
-- `grafana/`: Data sources provisioning definitions linking Loki, Tempo, and Mimir.
-- `loki/`, `tempo/`, `mimir/`: Monolithic configuration files for logging, tracing, and metric backends.
-- `helm/lgtm-stack/`: Unified Kubernetes Helm chart for EKS deployments.
+Includes an interactive **Glassmorphic Web UI Dashboard** with a **3D WebGL Topology Diagram**, OpenTelemetry distributed tracing, metrics-to-traces exemplars, OTLP log correlation, and a zero-overhead **`ENABLE_OBSERVABILITY` feature flag**.
 
 ---
 
-## Service Endpoints (Local Stack)
+## 📐 Architecture & Data Flow Workflow
 
-When running locally, you can access the following services:
+### System Architecture Topology
 
-| Service | Port | Endpoint | Description |
+```
+                   +----------------------------------+
+                   |    Web Control Center (UI)       |
+                   |      http://localhost:8081       |
+                   +-----------------+----------------+
+                                     |
+                                     v
+                   +----------------------------------+
+                   |  Node.js API Gateway (Express)   | (Port 8081)
+                   +-----------------+----------------+
+                                     |  HTTP REST / W3C Trace Context
+                                     v
+                   +----------------------------------+
+                   | Python Analytics Service (Flask) | (Port 5000)
+                   +-----------------+----------------+
+                                     |  SQL Queries (SELECT, INSERT)
+                                     v
+                   +----------------------------------+
+                   |    PostgreSQL Database (v15)     | (Port 5432)
+                   +----------------------------------+
+```
+
+### Telemetry Pipeline & Data Flow Workflow
+
+```mermaid
+graph TD
+    UI[Web UI / Client] -->|HTTP Requests| Node[Node.js Gateway :8081]
+    Node -->|HTTP Downstream| Py[Python Service :5000]
+    Py -->|SQL Queries| DB[(PostgreSQL :5432)]
+
+    Node -->|OTLP Traces, Metrics, Logs| Alloy[Grafana Alloy Collector :4317 / :4318]
+    Py -->|OTLP Traces, Metrics, Logs| Alloy
+
+    Alloy -->|OTLP HTTP / Spanmetrics| Mimir[(Grafana Mimir :9009)]
+    Alloy -->|OTLP Logs Push| Loki[(Grafana Loki :3100)]
+    Alloy -->|OTLP gRPC Traces| Tempo[(Grafana Tempo :4317)]
+
+    Grafana[Grafana Dashboard :3000] -->|Metrics & Exemplars| Mimir
+    Grafana -->|Log Query| Loki
+    Grafana -->|Trace Timeline| Tempo
+```
+
+---
+
+## 🌟 Key Capabilities & Features
+
+- **End-to-End Distributed Tracing**: Native OpenTelemetry W3C tracecontext header propagation across Node.js, Python, and PostgreSQL (`db.system = postgresql`).
+- **OpenMetrics Exemplars & RED Spanmetrics**: Connects Prometheus metric spikes directly to trace IDs in Tempo using `otelcol.connector.spanmetrics` in Alloy.
+- **OTLP Ingestion Logging**: Ingests Winston (Node.js) and Python logging directly into Loki via OTLP HTTP streams.
+- **Glassmorphic 3D Web Control Center**: Interactive dashboard featuring Orbit Three.js WebGL 3D mesh node graph, 1-click test action chips, and real-time response telemetry.
+- **Global `ENABLE_OBSERVABILITY` Feature Flag**: Toggle telemetry globally via env var (`ENABLE_OBSERVABILITY=true` / `false`) with built-in zero-overhead No-Op fallbacks.
+
+---
+
+## 🌐 Local Service Endpoints
+
+When running locally via Docker Compose, access the following endpoints:
+
+| Service | Host Port | URL / Endpoint | Description |
 | :--- | :--- | :--- | :--- |
-| **Grafana** | `3000` | [http://localhost:3000](http://localhost:3000) | Main UI (Anonymous Admin enabled) |
-| **Node.js App** | `8081` | [http://localhost:8081](http://localhost:8081) | Entrypoint Express application |
-| **Node.js App Docs** | `8081` | [http://localhost:8081/docs](http://localhost:8081/docs) | Dark-themed API documentation |
-| **Python App** | `5000` | [http://localhost:5000](http://localhost:5000) | Downstream Flask database/compute service |
-| **Python App Docs** | `5000` | [http://localhost:5000/docs](http://localhost:5000/docs) | Dark-themed API documentation |
-| **Grafana Alloy** | `12345` | [http://localhost:12345](http://localhost:12345) | Scraper agent dashboard and internal metrics |
+| **Web Control Center UI** | `8081` | [http://localhost:8081](http://localhost:8081) | Interactive Glassmorphic 3D Control Dashboard |
+| **Grafana Dashboard** | `3000` | [http://localhost:3000](http://localhost:3000) | Observability UI (Anonymous Admin Enabled) |
+| **Node.js API Docs** | `8081` | [http://localhost:8081/docs](http://localhost:8081/docs) | Swagger OpenAPI UI |
+| **Python App Docs** | `5000` | [http://localhost:5000/docs](http://localhost:5000/docs) | Swagger OpenAPI UI |
+| **Prometheus Metrics** | `8081` | [http://localhost:8081/metrics](http://localhost:8081/metrics) | Node.js OpenMetrics endpoint with exemplars |
+| **Grafana Alloy UI** | `12345` | [http://localhost:12345](http://localhost:12345) | Collector status & component topology |
 
 ---
 
-## Local Setup (Docker Compose)
+## 🚀 Quick Start Guide (Docker Compose)
 
-### 1. Build and Start the Stack
-Run Docker Compose from the root directory to rebuild and launch all services:
+### 1. Build and Launch Infrastructure
+Launch the full microservice mesh, database, and LGTM telemetry stack:
+
 ```bash
+# Start full stack in detached mode
 docker compose up --build -d
 ```
 
-### 2. Generate Telemetry Data
-Trigger trace and metrics generating routes on the apps:
+### 2. Run with Observability Disabled (Optional)
+To test application performance without telemetry overhead:
+
 ```bash
-# 1. Trigger parent-child distributed trace across Node.js & Python
-curl http://localhost:8081/complex-task
-
-# 2. Trigger numerical calculation metrics
-curl http://localhost:8081/calculate/12
-
-# 3. Trigger database error and spans
-curl http://localhost:8081/user/invalid-format
+# Run with Observability DISABLED
+ENABLE_OBSERVABILITY=false docker compose up -d
 ```
 
-### 3. Verify Telemetry Correlations in Grafana
+### 3. Generate Telemetry Signals & Test API Routes
 
-- **Logs to Traces:** Go to Grafana Loki explore, query `{job="node-app"}` or `{job="python-app"}`, expand any log, and click **"View Trace"** next to the trace ID to load its distributed timeline in Tempo.
-- **Traces to Logs:** Click **"Logs for this span"** on any span in Tempo to automatically open Loki logs filtered by matching job labels.
-- **Metrics to Traces (Exemplars):** Choose Prometheus (Mimir) in Grafana Explore. Check the **Exemplars** toggle and query `node_task_duration_seconds_bucket` or `python_task_duration_seconds_bucket`. Click on any blue/green exemplar data point to hop directly to its trace in Tempo.
+Open `http://localhost:8081` in your browser to use the 1-click control center, or run cURL commands:
+
+```bash
+# 1. Fibonacci & Downstream Python Analysis Pipeline
+curl http://localhost:8081/calculate/15
+
+# 2. Text Sentiment & Statistics Analysis
+curl -X POST http://localhost:8081/text/analyze \
+  -H "Content-Type: application/json" \
+  -d '{"text":"Awesome speed and fantastic distributed tracing performance!"}'
+
+# 3. Prime Factorization
+curl http://localhost:8081/math/prime-factors/1440
+
+# 4. PostgreSQL Database Query
+curl http://localhost:8081/user/42
+
+# 5. Fault Injection (500 Error Tracing)
+curl http://localhost:8081/error
+```
 
 ---
 
-## Kubernetes & EKS Deployment (Helm)
+## ☸️ Kubernetes Deployment (Helm)
 
-We have packaged the entire LGTM stack and applications in a unified Helm chart under `helm/lgtm-stack/`.
+The stack is packaged as a production Helm chart under `helm/lgtm-stack/`.
 
-### Deployment Steps:
-1. Push application images to ECR (AWS Elastic Container Registry).
-2. Install the Helm chart, overriding ECR image paths and specifying the cluster storage class:
-   ```bash
-   helm install lgtm ./helm/lgtm-stack \
-     --set global.storageClass="gp3" \
-     --set nodeApp.image.repository="<aws_account_id>.dkr.ecr.<region>.amazonaws.com/lgtm-node-app" \
-     --set pythonApp.image.repository="<aws_account_id>.dkr.ecr.<region>.amazonaws.com/lgtm-python-app"
-   ```
+```bash
+# Lint Helm chart templates
+helm lint ./helm/lgtm-stack
 
-Refer to [helm/lgtm-stack/README.md](file:///home/bhola/Antigravity/LGTM/helm/lgtm-stack/README.md) for more details.
+# Install onto Kubernetes / EKS
+helm install lgtm ./helm/lgtm-stack \
+  --set global.enableObservability=true \
+  --set global.storageClass="gp3"
+```
+
+---
+
+## ⚙️ Environment Variables & ConfigMap Reference
+
+| Variable Name | Default Value | Description |
+| :--- | :--- | :--- |
+| `PORT` | `8081` (Node) / `5000` (Py) | Express / Flask HTTP listening port. |
+| `ENABLE_OBSERVABILITY` | `true` | Set to `false` to disable telemetry globally without code breaks. |
+| `PYTHON_SERVICE_URL` | `http://python-app:5000` | Gateway URL for Node.js -> Python downstream communication. |
+| `POSTGRES_HOST` | `postgres` | Hostname of the PostgreSQL database instance. |
+| `POSTGRES_PORT` | `5432` | Port for PostgreSQL connections. |
+| `POSTGRES_DB` | `lgtmdb` | Database name for PostgreSQL (`.Values.postgres.database`). |
+| `POSTGRES_USER` | `lgtmuser` | Username for PostgreSQL (`.Values.postgres.user`). |
+| `POSTGRES_PASSWORD` | `lgtmpass` | Password for PostgreSQL (`.Values.postgres.password`). |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | `http://alloy:4318` | Base OTLP HTTP collector endpoint. |
+| `MIMIR_OTLP_ENDPOINT` | `http://mimir:9009/otlp` | OTLP HTTP push URL for Grafana Mimir metrics. |
+| `LOKI_PUSH_URL` | `http://loki:3100/loki/api/v1/push` | Push URL for Grafana Loki log ingestion. |
+| `TEMPO_OTLP_ENDPOINT` | `tempo:4317` | OTLP gRPC endpoint for Grafana Tempo traces. |
+
+---
+
+## 🔍 Grafana Telemetry Correlation Workflow
+
+1. **Logs ➔ Traces**: Open Grafana Explore (`http://localhost:3000`), choose **Loki**, query `{job="node-app"}` or `{job="python-app"}`. Expand any log record and click **"View Trace"** next to `trace_id` to view the distributed timeline in Tempo.
+2. **Traces ➔ Logs**: On any span timeline in Tempo, click **"Logs for this span"** to automatically jump to Loki logs filtered by matching span timestamps and service labels.
+3. **Metrics ➔ Traces (Exemplars)**: Select **Mimir / Prometheus** in Grafana Explore, enable **Exemplars**, and query `node_task_duration_seconds_bucket`. Click any blue exemplar data point to hop straight into its Tempo trace timeline.

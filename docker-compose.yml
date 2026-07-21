@@ -78,14 +78,20 @@ services:
   python-app:
     image: bhgaur/python-app-image:python-app
     build:
-      context: ./apps/python-app
-    platform: linux/amd64 
+      context: ./apps
+      dockerfile: python-app/Dockerfile
     container_name: python-app
     command: python app.py
     ports:
       - "5000:5000"
     environment:
       - PORT=5000
+      - ENABLE_OBSERVABILITY=${ENABLE_OBSERVABILITY:-true}
+      - POSTGRES_HOST=postgres
+      - POSTGRES_PORT=5432
+      - POSTGRES_DB=lgtmdb
+      - POSTGRES_USER=lgtmuser
+      - POSTGRES_PASSWORD=lgtmpass
       - OTEL_EXPORTER_OTLP_ENDPOINT=http://alloy:4318
       - OTEL_EXPORTER_OTLP_PROTOCOL=http/protobuf
       - OTEL_SERVICE_NAME=python-app
@@ -96,6 +102,7 @@ services:
       - OTEL_METRICS_EXEMPLAR_FILTER=always_on
     depends_on:
       - alloy
+      - postgres
     networks:
       - lgtm
 
@@ -103,13 +110,15 @@ services:
   node-app:
     image: bhgaur/python-app-image:node-app
     build:
-      context: ./apps/node-app
-    platform: linux/amd64 
+      context: ./apps
+      dockerfile: node-app/Dockerfile
     container_name: node-app
     ports:
       - "8081:8081"
     environment:
       - PORT=8081
+      - ENABLE_OBSERVABILITY=${ENABLE_OBSERVABILITY:-true}
+      - PYTHON_SERVICE_URL=http://python-app:5000
       - OTEL_SERVICE_NAME=node-app
       - OTEL_METRICS_EXEMPLAR_FILTER=always_on
     depends_on:
@@ -118,7 +127,30 @@ services:
     networks:
       - lgtm
 
+  # 8. PostgreSQL Database Infrastructure
+  postgres:
+    image: postgres:15-alpine
+    container_name: lgtm-postgres
+    ports:
+      - "5432:5432"
+    environment:
+      - POSTGRES_DB=lgtmdb
+      - POSTGRES_USER=lgtmuser
+      - POSTGRES_PASSWORD=lgtmpass
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U lgtmuser -d lgtmdb"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - lgtm
+
 networks:
   lgtm:
     name: lgtm-network
     driver: bridge
+
+volumes:
+  postgres_data:

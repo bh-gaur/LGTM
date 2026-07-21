@@ -16,6 +16,6 @@
     "winston": "^3.13.0"
   },
   "scripts": {
-    "start": "node -r ./instrumentation.js app.js"
+    "start": "node app.js"
   }
 }

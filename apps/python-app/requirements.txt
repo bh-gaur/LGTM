@@ -4,3 +4,5 @@ opentelemetry-sdk==1.28.0
 opentelemetry-exporter-otlp==1.28.0
 opentelemetry-instrumentation-flask
 opentelemetry-instrumentation-logging
+opentelemetry-instrumentation-psycopg2
+psycopg2-binary>=2.9.9

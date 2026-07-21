@@ -2,13 +2,15 @@ FROM node:20-slim
 
 WORKDIR /app
 
-COPY package.json .
+COPY node-app/package.json ./node-app/
 
-RUN npm install
+RUN cd node-app && npm install
 
-COPY app.js instrumentation.js ./
+COPY common ./common
+COPY node-app/ ./node-app/
+
+WORKDIR /app/node-app
 
 EXPOSE 8081
 
-# Command requires loading the instrumentation script first
 CMD ["npm", "start"]
