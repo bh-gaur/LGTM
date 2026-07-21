@@ -49,14 +49,14 @@ otelcol.processor.batch "default" {
 // Metrics to Mimir (via native OTLP HTTP)
 otelcol.exporter.otlphttp "mimir" {
   client {
-    endpoint = sys.env("MIMIR_OTLP_ENDPOINT") != "" ? sys.env("MIMIR_OTLP_ENDPOINT") : "http://mimir:9009/otlp"
+    endpoint = env("MIMIR_ENDPOINT")
     tls { insecure = true }
   }
 }
 
 prometheus.remote_write "mimir" {
   endpoint {
-    url = sys.env("MIMIR_REMOTE_WRITE_URL") != "" ? sys.env("MIMIR_REMOTE_WRITE_URL") : "http://mimir:9009/api/v1/push"
+    url = env("MIMIR_REMOTE_WRITE_URL")
     send_exemplars = true
   }
 }
@@ -68,26 +68,26 @@ otelcol.exporter.loki "loki_out" {
 
 loki.write "loki_endpoint" {
   endpoint {
-    url = sys.env("LOKI_PUSH_URL") != "" ? sys.env("LOKI_PUSH_URL") : "http://loki:3100/loki/api/v1/push"
+    url = env("LOKI_PUSH_URL")
   }
 }
 
 // Traces to Tempo
 otelcol.exporter.otlp "tempo" {
   client {
-    endpoint = sys.env("TEMPO_OTLP_ENDPOINT") != "" ? sys.env("TEMPO_OTLP_ENDPOINT") : "tempo:4317"
+    endpoint = env("TEMPO_ENDPOINT")
     tls { insecure = true }
   }
 }
 
 // 4. Scrape Alloy's internal metrics
 prometheus.scrape "alloy" {
-  targets = [{"__address__" = sys.env("ALLOY_INTERNAL_METRICS_TARGET") != "" ? sys.env("ALLOY_INTERNAL_METRICS_TARGET") : "localhost:12345"}]
+  targets = [{"__address__" = env("ALLOY_INTERNAL_METRICS_TARGET")}]
   forward_to = [prometheus.remote_write.mimir.receiver]
 }
 
 // 5. Scrape Node.js application metrics (supports OpenMetrics exemplars)
 prometheus.scrape "node_app" {
-  targets = [{"__address__" = sys.env("NODE_APP_SCRAPE_TARGET") != "" ? sys.env("NODE_APP_SCRAPE_TARGET") : "node-app:8081"}]
+  targets = [{"__address__" = env("NODE_APP_SCRAPE_TARGET")}]
   forward_to = [prometheus.remote_write.mimir.receiver]
 }

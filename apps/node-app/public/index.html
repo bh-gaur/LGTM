@@ -5,6 +5,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Signal Deck — LGTM Telemetry Control</title>
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%230284c7' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M2 12h4l2-7 4 14 2-7h8'/></svg>">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link
@@ -28,18 +29,26 @@
       --cyan: #0284c7;
       --violet: #7c3aed;
       --amber: #d97706;
+      --rose: #e11d48;
       --green: #059669;
-      --red: #e11d48;
-      --blue: #2563eb;
+      --pink: #ec4899;
 
-      --console-cyan: #38bdf8;
-      --console-green: #34d399;
-      --console-violet: #a78bfa;
-      --console-amber: #fbbf24;
-      --console-faint: #94a3b8;
+      --console-bg: #0b0f19;
+      --console-text: #e2e8f0;
+      --console-key: #38bdf8;
+      --console-str: #34d399;
+      --console-num: #a78bfa;
+      --console-bool: #fbbf24;
+      --console-null: #94a3b8;
+      --console-cyan: #22d3ee;
+      --console-amber: #f59e0b;
+      --console-green: #10b981;
+      --console-violet: #8b5cf6;
+      --console-rose: #f43f5e;
+      --console-faint: #64748b;
 
-      --font-display: 'Space Grotesk', sans-serif;
-      --font-body: 'Inter', sans-serif;
+      --font-display: 'Space Grotesk', -apple-system, sans-serif;
+      --font-body: 'Inter', -apple-system, sans-serif;
       --font-mono: 'JetBrains Mono', monospace;
     }
 
@@ -49,81 +58,85 @@
       padding: 0;
     }
 
-    html {
-      color-scheme: light;
-    }
-
     body {
-      font-family: var(--font-body);
-      background: var(--bg);
-      background-image:
-        radial-gradient(at 12% 8%, rgba(37, 99, 235, 0.12) 0px, transparent 50%),
-        radial-gradient(at 88% 6%, rgba(124, 58, 237, 0.12) 0px, transparent 50%),
-        radial-gradient(at 50% 100%, rgba(2, 132, 199, 0.08) 0px, transparent 55%);
-      background-attachment: fixed;
+      background: linear-gradient(135deg, var(--bg) 0%, var(--bg-1) 100%);
       color: var(--text);
+      font-family: var(--font-body);
       min-height: 100vh;
-      padding: 2.5rem 1.5rem 4rem;
+      padding: 1.5rem;
+      -webkit-font-smoothing: antialiased;
       overflow-x: hidden;
     }
 
-    /* fine grid overlay for instrument-panel feel */
-    body::before {
+    /* Ambient animated glass background orbs */
+    body::before,
+    body::after {
       content: '';
       position: fixed;
-      inset: 0;
-      background-image:
-        linear-gradient(rgba(15, 23, 42, 0.035) 1px, transparent 1px),
-        linear-gradient(90deg, rgba(15, 23, 42, 0.035) 1px, transparent 1px);
-      background-size: 42px 42px;
-      pointer-events: none;
+      border-radius: 50%;
+      filter: blur(100px);
       z-index: -1;
-      mask-image: radial-gradient(ellipse 80% 60% at 50% 0%, black 40%, transparent 90%);
+      pointer-events: none;
+      opacity: 0.45;
+      animation: floatOrb 18s ease-in-out infinite alternate;
     }
 
-    a {
-      color: inherit;
+    body::before {
+      width: 480px;
+      height: 480px;
+      background: radial-gradient(circle, rgba(56, 189, 248, 0.3) 0%, rgba(124, 58, 237, 0.15) 100%);
+      top: -100px;
+      left: -100px;
     }
 
-    :focus-visible {
-      outline: 2px solid var(--cyan);
-      outline-offset: 2px;
-      border-radius: 4px;
+    body::after {
+      width: 520px;
+      height: 520px;
+      background: radial-gradient(circle, rgba(52, 211, 153, 0.25) 0%, rgba(251, 113, 133, 0.15) 100%);
+      bottom: -150px;
+      right: -100px;
+      animation-delay: -9s;
+    }
+
+    @keyframes floatOrb {
+      0% {
+        transform: translate(0, 0) scale(1);
+      }
+
+      50% {
+        transform: translate(60px, 40px) scale(1.08);
+      }
+
+      100% {
+        transform: translate(-30px, 80px) scale(0.95);
+      }
     }
 
     .container {
-      max-width: 1280px;
+      max-width: 1400px;
       margin: 0 auto;
-    }
-
-    @media (prefers-reduced-motion: reduce) {
-
-      *,
-      *::before,
-      *::after {
-        animation-duration: 0.001ms !important;
-        animation-iteration-count: 1 !important;
-        transition-duration: 0.001ms !important;
-      }
     }
 
     /* ============ HEADER ============ */
     header {
+      background: var(--panel);
+      backdrop-filter: blur(20px) saturate(180%);
+      -webkit-backdrop-filter: blur(20px) saturate(180%);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 1rem 1.4rem;
       display: flex;
       justify-content: space-between;
       align-items: center;
-      gap: 1.5rem;
-      margin-bottom: 1.75rem;
-      padding-bottom: 1.5rem;
-      border-bottom: 1px solid var(--border);
-      animation: slideDown 0.7s cubic-bezier(0.16, 1, 0.3, 1);
-      flex-wrap: wrap;
+      margin-bottom: 1.5rem;
+      box-shadow: var(--glass-shadow);
+      animation: fadeInDown 0.6s cubic-bezier(0.16, 1, 0.3, 1);
     }
 
-    @keyframes slideDown {
+    @keyframes fadeInDown {
       from {
         opacity: 0;
-        transform: translateY(-16px);
+        transform: translateY(-20px);
       }
 
       to {
@@ -135,56 +148,39 @@
     .brand {
       display: flex;
       align-items: center;
-      gap: 1rem;
+      gap: 0.85rem;
     }
 
     .brand-logo {
-      width: 46px;
-      height: 46px;
-      border-radius: 13px;
-      background: linear-gradient(135deg, var(--blue), var(--violet));
+      width: 38px;
+      height: 38px;
+      background: linear-gradient(135deg, var(--cyan), var(--violet));
+      border-radius: 10px;
       display: flex;
       align-items: center;
       justify-content: center;
-      position: relative;
-      box-shadow: 0 8px 22px rgba(37, 99, 235, 0.32);
-      animation: pulseLogo 3s infinite ease-in-out;
+      box-shadow: 0 8px 20px -4px rgba(2, 132, 199, 0.4);
     }
 
     .brand-logo svg {
-      width: 24px;
-      height: 24px;
-    }
-
-    @keyframes pulseLogo {
-
-      0%,
-      100% {
-        transform: scale(1);
-        box-shadow: 0 8px 22px rgba(37, 99, 235, 0.32);
-      }
-
-      50% {
-        transform: scale(1.05);
-        box-shadow: 0 10px 28px rgba(124, 58, 237, 0.42);
-      }
+      width: 20px;
+      height: 20px;
     }
 
     .brand-title h1 {
       font-family: var(--font-display);
-      font-size: 1.4rem;
+      font-size: 1.2rem;
       font-weight: 700;
       letter-spacing: -0.01em;
-      color: var(--text);
+      background: linear-gradient(135deg, #0f172a 0%, #334155 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
     }
 
     .brand-title p {
-      font-family: var(--font-mono);
       font-size: 0.72rem;
-      color: var(--text-faint);
-      letter-spacing: 0.04em;
-      margin-top: 0.15rem;
-      text-transform: uppercase;
+      color: var(--text-dim);
+      font-weight: 500;
     }
 
     .nav-links {
@@ -193,38 +189,34 @@
     }
 
     .nav-btn {
-      display: inline-flex;
-      align-items: center;
-      gap: 0.45rem;
-      text-decoration: none;
-      color: var(--text-dim);
-      background: var(--panel);
-      backdrop-filter: blur(16px);
-      -webkit-backdrop-filter: blur(16px);
+      background: rgba(255, 255, 255, 0.7);
       border: 1px solid var(--border);
-      padding: 0.5rem 1rem;
-      border-radius: 9px;
-      font-size: 0.8rem;
+      color: var(--text);
+      padding: 0.45rem 0.85rem;
+      border-radius: 8px;
+      font-size: 0.78rem;
       font-weight: 600;
-      box-shadow: var(--glass-shadow);
-      transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+      text-decoration: none;
+      display: flex;
+      align-items: center;
+      gap: 0.4rem;
+      transition: all 0.2s ease;
+    }
+
+    .nav-btn:hover {
+      background: #ffffff;
+      border-color: var(--border-strong);
+      transform: translateY(-1px);
+      box-shadow: 0 4px 12px rgba(15, 23, 42, 0.06);
     }
 
     .nav-btn svg {
       width: 14px;
       height: 14px;
-      opacity: 0.75;
+      stroke: var(--cyan);
     }
 
-    .nav-btn:hover {
-      color: var(--blue);
-      border-color: rgba(37, 99, 235, 0.35);
-      background: rgba(255, 255, 255, 0.9);
-      transform: translateY(-2px);
-      box-shadow: 0 12px 26px rgba(37, 99, 235, 0.16);
-    }
-
-    /* ============ 3D TOPOLOGY ============ */
+    /* ============ 3D TOPOLOGY CANVAS ============ */
     .topology-container {
       background: var(--panel);
       backdrop-filter: blur(20px) saturate(180%);
@@ -232,55 +224,68 @@
       border: 1px solid var(--border);
       border-radius: 16px;
       padding: 1rem;
-      margin-bottom: 1.75rem;
+      margin-bottom: 1.5rem;
       position: relative;
       overflow: hidden;
       box-shadow: var(--glass-shadow);
-      animation: fadeInUp 0.8s cubic-bezier(0.16, 1, 0.3, 1);
+      animation: fadeInUp 0.7s cubic-bezier(0.16, 1, 0.3, 1) 0.1s both;
     }
 
-    .topology-title {
+    .topology-header {
       position: absolute;
-      top: 1.15rem;
+      top: 1.2rem;
       left: 1.4rem;
-      z-index: 10;
+      z-index: 2;
       pointer-events: none;
     }
 
-    .topology-title h3 {
+    .topology-header h3 {
       font-family: var(--font-display);
-      font-size: 1rem;
+      font-size: 0.95rem;
       font-weight: 600;
       color: var(--text);
+      display: flex;
+      align-items: center;
+      gap: 0.4rem;
     }
 
-    .topology-title p {
-      font-family: var(--font-mono);
+    .topology-header h3::before {
+      content: '';
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--green);
+      box-shadow: 0 0 10px var(--green);
+    }
+
+    .topology-header p {
       font-size: 0.72rem;
-      color: var(--text-faint);
+      color: var(--text-dim);
       margin-top: 0.2rem;
     }
 
     .topology-legend {
       position: absolute;
       bottom: 1rem;
-      right: 1.25rem;
+      right: 1.4rem;
+      z-index: 2;
       display: flex;
-      gap: 0.9rem;
-      z-index: 10;
-      pointer-events: none;
-      flex-wrap: wrap;
-      justify-content: flex-end;
-      max-width: 60%;
+      gap: 0.8rem;
+      background: rgba(255, 255, 255, 0.75);
+      backdrop-filter: blur(10px);
+      padding: 0.4rem 0.8rem;
+      border-radius: 9999px;
+      border: 1px solid var(--border);
+      font-family: var(--font-mono);
+      font-size: 0.68rem;
     }
 
     .legend-item {
       display: flex;
       align-items: center;
       gap: 0.35rem;
-      font-family: var(--font-mono);
-      font-size: 0.65rem;
-      color: var(--text-faint);
+      color: var(--text-dim);
+      font-weight: 500;
     }
 
     .legend-dot {
@@ -291,7 +296,7 @@
 
     #canvas3d {
       width: 100%;
-      height: 300px;
+      height: 280px;
       display: block;
       border-radius: 12px;
       cursor: grab;
@@ -301,12 +306,25 @@
       cursor: grabbing;
     }
 
-    /* ============ GRID ============ */
+    /* ============ WORKSPACE SPLIT (SIDE-BY-SIDE) ============ */
+    .workspace-split {
+      display: grid;
+      grid-template-columns: 1.15fr 1fr;
+      gap: 1.5rem;
+      align-items: start;
+    }
+
+    @media (max-width: 1080px) {
+      .workspace-split {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    /* ============ FUNCTION CARDS GRID ============ */
     .dashboard-grid {
       display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
-      gap: 1.25rem;
-      margin-bottom: 2rem;
+      grid-template-columns: repeat(auto-fit, minmax(310px, 1fr));
+      gap: 1.15rem;
     }
 
     .card {
@@ -315,10 +333,10 @@
       -webkit-backdrop-filter: blur(20px) saturate(180%);
       border: 1px solid var(--border);
       border-radius: 16px;
-      padding: 1.4rem;
+      padding: 1.25rem;
       display: flex;
       flex-direction: column;
-      gap: 1.15rem;
+      gap: 1rem;
       position: relative;
       overflow: hidden;
       box-shadow: var(--glass-shadow);
@@ -345,30 +363,6 @@
       opacity: 1;
     }
 
-    .card:nth-child(1) {
-      animation-delay: 0.05s;
-    }
-
-    .card:nth-child(2) {
-      animation-delay: 0.1s;
-    }
-
-    .card:nth-child(3) {
-      animation-delay: 0.15s;
-    }
-
-    .card:nth-child(4) {
-      animation-delay: 0.2s;
-    }
-
-    .card:nth-child(5) {
-      animation-delay: 0.25s;
-    }
-
-    .card:nth-child(6) {
-      animation-delay: 0.3s;
-    }
-
     @keyframes fadeInUp {
       from {
         opacity: 0;
@@ -384,19 +378,19 @@
     .card:hover {
       border-color: color-mix(in srgb, var(--card-accent, var(--cyan)) 45%, transparent);
       background: rgba(255, 255, 255, 0.82);
-      transform: translateY(-4px);
-      box-shadow: 0 20px 40px -14px rgba(15, 23, 42, 0.16), inset 0 1px 0 0 rgba(255, 255, 255, 1);
+      transform: translateY(-3px);
+      box-shadow: 0 16px 36px -12px rgba(15, 23, 42, 0.14), inset 0 1px 0 0 rgba(255, 255, 255, 1);
     }
 
     .card-header {
       display: flex;
       align-items: center;
-      gap: 0.85rem;
+      gap: 0.75rem;
     }
 
     .card-icon {
-      width: 40px;
-      height: 40px;
+      width: 38px;
+      height: 38px;
       border-radius: 10px;
       background: color-mix(in srgb, var(--card-accent, var(--cyan)) 14%, transparent);
       border: 1px solid color-mix(in srgb, var(--card-accent, var(--cyan)) 30%, transparent);
@@ -408,8 +402,8 @@
     }
 
     .card-icon svg {
-      width: 19px;
-      height: 19px;
+      width: 18px;
+      height: 18px;
       stroke: var(--card-accent, var(--cyan));
     }
 
@@ -419,16 +413,16 @@
 
     .card-title h3 {
       font-family: var(--font-display);
-      font-size: 1.02rem;
+      font-size: 0.98rem;
       font-weight: 600;
       color: var(--text);
     }
 
     .card-title p {
       font-family: var(--font-mono);
-      font-size: 0.72rem;
+      font-size: 0.7rem;
       color: var(--text-faint);
-      margin-top: 0.15rem;
+      margin-top: 0.1rem;
     }
 
     .route-tag {
@@ -447,11 +441,11 @@
     .form-group {
       display: flex;
       flex-direction: column;
-      gap: 0.4rem;
+      gap: 0.35rem;
     }
 
     label {
-      font-size: 0.75rem;
+      font-size: 0.73rem;
       font-weight: 600;
       color: var(--text-dim);
       letter-spacing: 0.02em;
@@ -463,10 +457,10 @@
       background: rgba(255, 255, 255, 0.85);
       border: 1px solid rgba(203, 213, 225, 0.9);
       border-radius: 8px;
-      padding: 0.6rem 0.8rem;
+      padding: 0.55rem 0.75rem;
       color: var(--text);
       font-family: var(--font-mono);
-      font-size: 0.85rem;
+      font-size: 0.82rem;
       outline: none;
       box-shadow: inset 0 1px 2px rgba(15, 23, 42, 0.03);
       transition: all 0.2s ease;
@@ -480,7 +474,7 @@
 
     .chip-group {
       display: flex;
-      gap: 0.4rem;
+      gap: 0.35rem;
       flex-wrap: wrap;
     }
 
@@ -488,9 +482,9 @@
       background: transparent;
       border: 1px solid var(--border);
       border-radius: 9999px;
-      padding: 0.25rem 0.7rem;
+      padding: 0.22rem 0.65rem;
       font-family: var(--font-mono);
-      font-size: 0.68rem;
+      font-size: 0.66rem;
       font-weight: 500;
       color: var(--text-faint);
       cursor: pointer;
@@ -512,40 +506,23 @@
       color: var(--text);
       font-family: var(--font-body);
       font-weight: 600;
-      padding: 0.7rem;
+      padding: 0.65rem;
       border-radius: 9px;
       cursor: pointer;
-      font-size: 0.85rem;
+      font-size: 0.82rem;
       transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
       display: flex;
       align-items: center;
       justify-content: center;
-      gap: 0.55rem;
-      position: relative;
-      overflow: hidden;
-    }
-
-    .btn::after {
-      content: '';
-      position: absolute;
-      inset: 0;
-      background: linear-gradient(100deg, transparent 30%, rgba(255, 255, 255, 0.12) 50%, transparent 70%);
-      transform: translateX(-120%);
-      transition: transform 0.6s ease;
+      gap: 0.5rem;
     }
 
     .btn:hover {
-      background: color-mix(in srgb, var(--card-accent, var(--cyan)) 22%, transparent);
-      box-shadow: 0 8px 22px -6px color-mix(in srgb, var(--card-accent, var(--cyan)) 55%, transparent);
-      transform: translateY(-2px);
-    }
-
-    .btn:hover::after {
-      transform: translateX(120%);
-    }
-
-    .btn:active {
-      transform: translateY(0) scale(0.98);
+      background: var(--card-accent, var(--cyan));
+      color: #ffffff;
+      border-color: var(--card-accent, var(--cyan));
+      box-shadow: 0 8px 22px -6px color-mix(in srgb, var(--card-accent, var(--cyan)) 60%, transparent);
+      transform: translateY(-1px);
     }
 
     .btn-danger {
@@ -575,18 +552,20 @@
       }
     }
 
-    /* ============ CONSOLE ============ */
+    /* ============ CONSOLE (STICKY SIDEBAR) ============ */
     .console-section {
       background: var(--panel);
       backdrop-filter: blur(20px) saturate(180%);
       -webkit-backdrop-filter: blur(20px) saturate(180%);
       border: 1px solid var(--border);
       border-radius: 16px;
-      padding: 1.4rem;
+      padding: 1.25rem;
       display: flex;
       flex-direction: column;
-      gap: 1rem;
+      gap: 0.85rem;
       box-shadow: var(--glass-shadow);
+      position: sticky;
+      top: 1.5rem;
       animation: fadeInUp 0.8s cubic-bezier(0.16, 1, 0.3, 1) 0.3s both;
     }
 
@@ -600,7 +579,7 @@
 
     .console-header h3 {
       font-family: var(--font-display);
-      font-size: 1rem;
+      font-size: 0.95rem;
       font-weight: 600;
     }
 
@@ -611,10 +590,10 @@
     }
 
     .status-badge {
-      padding: 0.3rem 0.75rem;
+      padding: 0.28rem 0.7rem;
       border-radius: 9999px;
       font-family: var(--font-mono);
-      font-size: 0.68rem;
+      font-size: 0.65rem;
       font-weight: 600;
       letter-spacing: 0.03em;
       background: rgba(15, 23, 42, 0.05);
@@ -631,15 +610,8 @@
     }
 
     @keyframes pulseBadge {
-
-      0%,
-      100% {
-        opacity: 1;
-      }
-
-      50% {
-        opacity: 0.55;
-      }
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.55; }
     }
 
     .status-success {
@@ -649,84 +621,65 @@
     }
 
     .status-error {
-      background: rgba(251, 113, 133, 0.1);
-      color: var(--red);
-      border-color: rgba(251, 113, 133, 0.3);
+      background: rgba(244, 63, 94, 0.1);
+      color: var(--rose);
+      border-color: rgba(244, 63, 94, 0.3);
     }
 
     #scope-canvas {
       width: 100%;
-      height: 46px;
-      display: block;
+      height: 38px;
+      background: #060911;
       border-radius: 8px;
-      background: rgba(0, 0, 0, 0.3);
-      border: 1px solid var(--border);
+      border: 1px solid rgba(255, 255, 255, 0.08);
     }
 
     .console-body {
-      position: relative;
+      background: var(--console-bg);
+      border-radius: 12px;
+      padding: 1.1rem;
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      max-height: 480px;
+      overflow-y: auto;
+      box-shadow: inset 0 2px 8px rgba(0, 0, 0, 0.4);
     }
 
-    pre#console-output {
+    .console-body::-webkit-scrollbar {
+      width: 6px;
+    }
+
+    .console-body::-webkit-scrollbar-thumb {
+      background: rgba(255, 255, 255, 0.15);
+      border-radius: 3px;
+    }
+
+    pre {
       font-family: var(--font-mono);
-      background: #05070c;
-      border: 1px solid var(--border);
-      padding: 1.1rem 1.25rem;
-      border-radius: 10px;
-      font-size: 0.82rem;
-      line-height: 1.6;
-      overflow-x: auto;
-      max-height: 320px;
-      color: var(--text-dim);
-      transition: border-color 0.3s ease;
+      font-size: 0.75rem;
+      line-height: 1.5;
+      color: var(--console-text);
+      white-space: pre-wrap;
+      word-break: break-all;
     }
 
-    pre#console-output.updated {
-      animation: flashBorder 0.6s ease-out;
-    }
-
-    @keyframes flashBorder {
-      0% {
-        border-color: var(--cyan);
-      }
-
-      100% {
-        border-color: var(--border);
-      }
-    }
-
-    .json-key {
-      color: var(--console-cyan);
-    }
-
-    .json-str {
-      color: var(--console-green);
-    }
-
-    .json-num {
-      color: var(--console-violet);
-    }
-
-    .json-bool {
-      color: var(--console-amber);
-    }
-
-    .json-null {
-      color: var(--console-faint);
-    }
+    .json-key { color: var(--console-key); }
+    .json-str { color: var(--console-str); }
+    .json-num { color: var(--console-num); }
+    .json-bool { color: var(--console-bool); }
+    .json-null { color: var(--console-null); }
 
     .cursor-blink {
       display: inline-block;
       width: 7px;
+      height: 13px;
       background: var(--console-cyan);
       margin-left: 2px;
+      vertical-align: middle;
       animation: blink 1s step-end infinite;
     }
 
     @keyframes blink {
-      50% {
-        opacity: 0;
-      }
+      50% { opacity: 0; }
     }
 
     footer {
@@ -760,8 +713,7 @@
       <div class="brand">
         <div class="brand-logo">
           <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-            <path d="M2 12h4l2-7 4 14 2-7h8" stroke="#ffffff" stroke-width="1.8" stroke-linecap="round"
-              stroke-linejoin="round" />
+            <path d="M2 12h4l2-7 4 14 2-7h8" stroke="#ffffff" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" />
           </svg>
         </div>
         <div class="brand-title">
@@ -786,8 +738,7 @@
         <a href="/swagger.json" target="_blank" class="nav-btn">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6">
             <circle cx="12" cy="12" r="3" />
-            <path
-              d="M19.4 15a1.6 1.6 0 00.3 1.8l.1.1a2 2 0 11-2.8 2.8l-.1-.1a1.6 1.6 0 00-1.8-.3 1.6 1.6 0 00-1 1.5V21a2 2 0 11-4 0v-.1a1.6 1.6 0 00-1-1.5 1.6 1.6 0 00-1.8.3l-.1.1a2 2 0 11-2.8-2.8l.1-.1a1.6 1.6 0 00.3-1.8 1.6 1.6 0 00-1.5-1H3a2 2 0 110-4h.1a1.6 1.6 0 001.5-1 1.6 1.6 0 00-.3-1.8l-.1-.1a2 2 0 112.8-2.8l.1.1a1.6 1.6 0 001.8.3H9a1.6 1.6 0 001-1.5V3a2 2 0 114 0v.1a1.6 1.6 0 001 1.5 1.6 1.6 0 001.8-.3l.1-.1a2 2 0 112.8 2.8l-.1.1a1.6 1.6 0 00-.3 1.8V9a1.6 1.6 0 001.5 1H21a2 2 0 110 4h-.1a1.6 1.6 0 00-1.5 1z" />
+            <path d="M19.4 15a1.6 1.6 0 00.3 1.8l.1.1a2 2 0 11-2.8 2.8l-.1-.1a1.6 1.6 0 00-1.8-.3 1.6 1.6 0 00-1 1.5V21a2 2 0 11-4 0v-.1a1.6 1.6 0 00-1-1.5 1.6 1.6 0 00-1.8.3l-.1.1a2 2 0 11-2.8-2.8l.1-.1a1.6 1.6 0 00.3-1.8 1.6 1.6 0 00-1.5-1H3a2 2 0 110-4h.1a1.6 1.6 0 001.5-1 1.6 1.6 0 00-.3-1.8l-.1-.1a2 2 0 112.8-2.8l.1.1a1.6 1.6 0 001.8.3H9a1.6 1.6 0 001-1.5V3a2 2 0 114 0v.1a1.6 1.6 0 001 1.5 1.6 1.6 0 001.8-.3l.1-.1a2 2 0 112.8 2.8l-.1.1a1.6 1.6 0 00-.3 1.8V9a1.6 1.6 0 001.5 1H21a2 2 0 110 4h-.1a1.6 1.6 0 00-1.5 1z" />
           </svg>
           OpenAPI Spec
         </a>
@@ -796,7 +747,7 @@
 
     <!-- Interactive 3D Architecture Topology -->
     <div class="topology-container">
-      <div class="topology-title">
+      <div class="topology-header">
         <h3>Live Mesh Topology</h3>
         <p>Drag to rotate · Pulses trace the real request path when you run a call below</p>
       </div>
@@ -804,6 +755,7 @@
       <div class="topology-legend">
         <span class="legend-item"><span class="legend-dot" style="background:#5b9dfa"></span>Node.js</span>
         <span class="legend-item"><span class="legend-dot" style="background:#34d399"></span>Python</span>
+        <span class="legend-item"><span class="legend-dot" style="background:#38bdf8"></span>PostgreSQL</span>
         <span class="legend-item"><span class="legend-dot" style="background:#a78bfa"></span>Alloy</span>
         <span class="legend-item"><span class="legend-dot" style="background:#d97706"></span>Mimir</span>
         <span class="legend-item"><span class="legend-dot" style="background:#0284c7"></span>Loki</span>
@@ -811,198 +763,222 @@
       </div>
     </div>
 
-    <!-- Cards Grid -->
-    <div class="dashboard-grid">
+    <!-- Main Workspace: Side-by-Side Functions Grid & Live Response Console -->
+    <div class="workspace-split">
 
-      <!-- Card 1: Fibonacci Pipeline -->
-      <div class="card" style="--card-accent:#0284c7">
-        <div class="card-header">
-          <div class="card-icon">
-            <svg viewBox="0 0 24 24" fill="none" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M20 3.5a4 4 0 00-4 4v9a3 3 0 01-3 3 3 3 0 01-3-3 4.5 4.5 0 00-4.5-4.5A3.5 3.5 0 002 15.5"
-                stroke-width="1.6" />
-            </svg>
+      <!-- Functions Cards Grid -->
+      <div class="dashboard-grid">
+
+        <!-- Card 1: Fibonacci Pipeline -->
+        <div class="card" style="--card-accent:#0284c7">
+          <div class="card-header">
+            <div class="card-icon">
+              <svg viewBox="0 0 24 24" fill="none" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M20 3.5a4 4 0 00-4 4v9a3 3 0 01-3 3 3 3 0 01-3-3 4.5 4.5 0 00-4.5-4.5A3.5 3.5 0 002 15.5" stroke-width="1.6" />
+              </svg>
+            </div>
+            <div class="card-title">
+              <h3>Fibonacci Pipeline</h3>
+              <p class="route-tag"><span class="route-dot" style="background:#5b9dfa"></span>Node.js → <span class="route-dot" style="background:#34d399"></span>Python /calculate/:num</p>
+            </div>
           </div>
-          <div class="card-title">
-            <h3>Fibonacci Pipeline</h3>
-            <p class="route-tag"><span class="route-dot" style="background:#5b9dfa"></span>Node.js → <span
-                class="route-dot" style="background:#34d399"></span>Python /calculate/:num</p>
+          <div class="form-group">
+            <label for="fib-num">Fibonacci Number (N)</label>
+            <input type="number" id="fib-num" value="15" min="1" max="40">
           </div>
+          <div class="chip-group">
+            <span class="chip" onclick="setVal('fib-num', 10)">Fib 10</span>
+            <span class="chip" onclick="setVal('fib-num', 20)">Fib 20</span>
+            <span class="chip" onclick="setVal('fib-num', 30)">Fib 30</span>
+          </div>
+          <button class="btn" id="btn-fib">
+            <div class="spinner"></div>
+            <span>Run fibonacci pipeline</span>
+          </button>
         </div>
-        <div class="form-group">
-          <label for="fib-num">Fibonacci Number (N)</label>
-          <input type="number" id="fib-num" value="15" min="1" max="40">
+
+        <!-- Card 2: Factorial Calculation -->
+        <div class="card" style="--card-accent:#ec4899">
+          <div class="card-header">
+            <div class="card-icon">
+              <svg viewBox="0 0 24 24" fill="none" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M7 4v16M17 4v16M3 8h18M3 16h18" stroke-width="1.6" />
+              </svg>
+            </div>
+            <div class="card-title">
+              <h3>Factorial Calculation</h3>
+              <p class="route-tag"><span class="route-dot" style="background:#5b9dfa"></span>Node.js → <span class="route-dot" style="background:#34d399"></span>Python /math/factorial/:n</p>
+            </div>
+          </div>
+          <div class="form-group">
+            <label for="factorial-num">Integer (N)</label>
+            <input type="number" id="factorial-num" value="10" min="0" max="2000">
+          </div>
+          <div class="chip-group">
+            <span class="chip" onclick="setVal('factorial-num', 5)">5!</span>
+            <span class="chip" onclick="setVal('factorial-num', 10)">10!</span>
+            <span class="chip" onclick="setVal('factorial-num', 25)">25!</span>
+            <span class="chip" onclick="setVal('factorial-num', 100)">100!</span>
+          </div>
+          <button class="btn" id="btn-factorial">
+            <div class="spinner"></div>
+            <span>Compute factorial</span>
+          </button>
         </div>
-        <div class="chip-group">
-          <span class="chip" onclick="setVal('fib-num', 10)">Fib 10</span>
-          <span class="chip" onclick="setVal('fib-num', 20)">Fib 20</span>
-          <span class="chip" onclick="setVal('fib-num', 30)">Fib 30</span>
+
+        <!-- Card 3: Text Sentiment Analysis -->
+        <div class="card" style="--card-accent:#059669">
+          <div class="card-header">
+            <div class="card-icon">
+              <svg viewBox="0 0 24 24" fill="none" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M4 6h16M4 12h11M4 18h7" stroke-width="1.6" />
+              </svg>
+            </div>
+            <div class="card-title">
+              <h3>Text Sentiment Analysis</h3>
+              <p class="route-tag"><span class="route-dot" style="background:#34d399"></span>Python Engine /text/analyze</p>
+            </div>
+          </div>
+          <div class="form-group">
+            <label for="text-input">Text payload</label>
+            <input type="text" id="text-input" value="The LGTM stack provides awesome real-time distributed tracing and observability!">
+          </div>
+          <div class="chip-group">
+            <span class="chip" onclick="setVal('text-input', 'Awesome speed, fantastic tracing performance!')">Positive</span>
+            <span class="chip" onclick="setVal('text-input', 'Terrible crash error slow timeout failure')">Negative</span>
+          </div>
+          <button class="btn" id="btn-text">
+            <div class="spinner"></div>
+            <span>Analyze sentiment</span>
+          </button>
         </div>
-        <button class="btn" id="btn-fib">
-          <div class="spinner"></div>
-          <span>Run fibonacci pipeline</span>
-        </button>
+
+        <!-- Card 4: Prime Factorization -->
+        <div class="card" style="--card-accent:#7c3aed">
+          <div class="card-header">
+            <div class="card-icon">
+              <svg viewBox="0 0 24 24" fill="none" stroke-linecap="round" stroke-linejoin="round">
+                <circle cx="7" cy="7" r="2.4" stroke-width="1.6" />
+                <circle cx="17" cy="7" r="2.4" stroke-width="1.6" />
+                <circle cx="7" cy="17" r="2.4" stroke-width="1.6" />
+                <circle cx="17" cy="17" r="2.4" stroke-width="1.6" />
+              </svg>
+            </div>
+            <div class="card-title">
+              <h3>Prime Factorization</h3>
+              <p class="route-tag"><span class="route-dot" style="background:#34d399"></span>Python Engine /math/prime-factors/:n</p>
+            </div>
+          </div>
+          <div class="form-group">
+            <label for="prime-num">Integer (N)</label>
+            <input type="number" id="prime-num" value="840" min="2">
+          </div>
+          <div class="chip-group">
+            <span class="chip" onclick="setVal('prime-num', 1440)">1440</span>
+            <span class="chip" onclick="setVal('prime-num', 9973)">9973 (prime)</span>
+            <span class="chip" onclick="setVal('prime-num', 1000000)">1M</span>
+          </div>
+          <button class="btn" id="btn-prime">
+            <div class="spinner"></div>
+            <span>Compute prime factors</span>
+          </button>
+        </div>
+
+        <!-- Card 5: Data Aggregation -->
+        <div class="card" style="--card-accent:#d97706">
+          <div class="card-header">
+            <div class="card-icon">
+              <svg viewBox="0 0 24 24" fill="none" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M4 20V10M12 20V4M20 20v-7" stroke-width="1.6" />
+              </svg>
+            </div>
+            <div class="card-title">
+              <h3>Array Statistics Aggregator</h3>
+              <p class="route-tag"><span class="route-dot" style="background:#34d399"></span>Python Engine /data/aggregate</p>
+            </div>
+          </div>
+          <div class="form-group">
+            <label for="array-input">Comma-separated numbers</label>
+            <input type="text" id="array-input" value="12, 45, 78, 23, 56, 89, 90, 34">
+          </div>
+          <div class="chip-group">
+            <span class="chip" onclick="setVal('array-input', '10, 20, 30, 40, 50')">Set 1..50</span>
+            <span class="chip" onclick="setVal('array-input', '99, 100, 101, 102, 103')">Set 100s</span>
+          </div>
+          <button class="btn" id="btn-aggregate">
+            <div class="spinner"></div>
+            <span>Aggregate dataset</span>
+          </button>
+        </div>
+
+        <!-- Card 6: User Profile Directory -->
+        <div class="card" style="--card-accent:#2563eb">
+          <div class="card-header">
+            <div class="card-icon">
+              <svg viewBox="0 0 24 24" fill="none" stroke-linecap="round" stroke-linejoin="round">
+                <circle cx="12" cy="8" r="3.2" stroke-width="1.6" />
+                <path d="M5 20c0-3.5 3-6 7-6s7 2.5 7 6" stroke-width="1.6" />
+              </svg>
+            </div>
+            <div class="card-title">
+              <h3>User Directory Lookup</h3>
+              <p class="route-tag"><span class="route-dot" style="background:#5b9dfa"></span>Node.js → <span class="route-dot" style="background:#34d399"></span>Python /user/:id</p>
+            </div>
+          </div>
+          <div class="form-group">
+            <label for="user-id">User ID</label>
+            <input type="text" id="user-id" value="42">
+          </div>
+          <div class="chip-group">
+            <span class="chip" onclick="setVal('user-id', '42')">User #42</span>
+            <span class="chip" onclick="setVal('user-id', '108')">User #108</span>
+            <span class="chip" onclick="setVal('user-id', 'invalid_abc')">Invalid ID</span>
+          </div>
+          <button class="btn" id="btn-user">
+            <div class="spinner"></div>
+            <span>Lookup user profile</span>
+          </button>
+        </div>
+
+        <!-- Card 7: Error & Fault Injection -->
+        <div class="card" style="--card-accent:#e11d48">
+          <div class="card-header">
+            <div class="card-icon">
+              <svg viewBox="0 0 24 24" fill="none" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M12 3l9 16H3z" stroke-width="1.6" stroke-linejoin="round" />
+                <path d="M12 10v4M12 17h.01" stroke-width="1.6" />
+              </svg>
+            </div>
+            <div class="card-title">
+              <h3>Error Fault Injection</h3>
+              <p class="route-tag"><span class="route-dot" style="background:#5b9dfa"></span>Node.js /error · <span class="route-dot" style="background:#34d399"></span>Python /faulty-endpoint</p>
+            </div>
+          </div>
+          <div class="form-group">
+            <label>Simulate faults to test tracing in Tempo and Loki</label>
+          </div>
+          <button class="btn btn-danger" id="btn-error">
+            <div class="spinner"></div>
+            <span>Trigger 500 internal error</span>
+          </button>
+        </div>
+
       </div>
 
-      <!-- Card 2: Text Sentiment Analysis -->
-      <div class="card" style="--card-accent:#059669">
-        <div class="card-header">
-          <div class="card-icon">
-            <svg viewBox="0 0 24 24" fill="none" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M4 6h16M4 12h11M4 18h7" stroke-width="1.6" />
-            </svg>
-          </div>
-          <div class="card-title">
-            <h3>Text Sentiment Analysis</h3>
-            <p class="route-tag"><span class="route-dot" style="background:#34d399"></span>Python Engine /text/analyze
-            </p>
+      <!-- Live Response Console (Side-by-Side Sticky Panel) -->
+      <div class="console-section">
+        <div class="console-header">
+          <h3>Live Response Telemetry</h3>
+          <div class="console-header-right">
+            <span class="status-badge" id="console-badge">READY</span>
           </div>
         </div>
-        <div class="form-group">
-          <label for="text-input">Text payload</label>
-          <input type="text" id="text-input"
-            value="The LGTM stack provides awesome real-time distributed tracing and observability!">
+        <canvas id="scope-canvas"></canvas>
+        <div class="console-body">
+          <pre id="console-output">// Execution output will appear here in real-time...<span class="cursor-blink">&nbsp;</span></pre>
         </div>
-        <div class="chip-group">
-          <span class="chip"
-            onclick="setVal('text-input', 'Awesome speed, fantastic tracing performance!')">Positive</span>
-          <span class="chip" onclick="setVal('text-input', 'Terrible crash error slow timeout failure')">Negative</span>
-        </div>
-        <button class="btn" id="btn-text">
-          <div class="spinner"></div>
-          <span>Analyze sentiment</span>
-        </button>
       </div>
 
-      <!-- Card 3: Prime Factorization -->
-      <div class="card" style="--card-accent:#7c3aed">
-        <div class="card-header">
-          <div class="card-icon">
-            <svg viewBox="0 0 24 24" fill="none" stroke-linecap="round" stroke-linejoin="round">
-              <circle cx="7" cy="7" r="2.4" stroke-width="1.6" />
-              <circle cx="17" cy="7" r="2.4" stroke-width="1.6" />
-              <circle cx="7" cy="17" r="2.4" stroke-width="1.6" />
-              <circle cx="17" cy="17" r="2.4" stroke-width="1.6" />
-            </svg>
-          </div>
-          <div class="card-title">
-            <h3>Prime Factorization</h3>
-            <p class="route-tag"><span class="route-dot" style="background:#34d399"></span>Python Engine
-              /math/prime-factors/:n</p>
-          </div>
-        </div>
-        <div class="form-group">
-          <label for="prime-num">Integer (N)</label>
-          <input type="number" id="prime-num" value="840" min="2">
-        </div>
-        <div class="chip-group">
-          <span class="chip" onclick="setVal('prime-num', 1440)">1440</span>
-          <span class="chip" onclick="setVal('prime-num', 9973)">9973 (prime)</span>
-          <span class="chip" onclick="setVal('prime-num', 1000000)">1M</span>
-        </div>
-        <button class="btn" id="btn-prime">
-          <div class="spinner"></div>
-          <span>Compute prime factors</span>
-        </button>
-      </div>
-
-      <!-- Card 4: Data Aggregation -->
-      <div class="card" style="--card-accent:#d97706">
-        <div class="card-header">
-          <div class="card-icon">
-            <svg viewBox="0 0 24 24" fill="none" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M4 20V10M12 20V4M20 20v-7" stroke-width="1.6" />
-            </svg>
-          </div>
-          <div class="card-title">
-            <h3>Array Statistics Aggregator</h3>
-            <p class="route-tag"><span class="route-dot" style="background:#34d399"></span>Python Engine /data/aggregate
-            </p>
-          </div>
-        </div>
-        <div class="form-group">
-          <label for="array-input">Comma-separated numbers</label>
-          <input type="text" id="array-input" value="12, 45, 78, 23, 56, 89, 90, 34">
-        </div>
-        <div class="chip-group">
-          <span class="chip" onclick="setVal('array-input', '10, 20, 30, 40, 50')">Set 1..50</span>
-          <span class="chip" onclick="setVal('array-input', '99, 100, 101, 102, 103')">Set 100s</span>
-        </div>
-        <button class="btn" id="btn-aggregate">
-          <div class="spinner"></div>
-          <span>Aggregate dataset</span>
-        </button>
-      </div>
-
-      <!-- Card 5: User Profile Directory -->
-      <div class="card" style="--card-accent:#2563eb">
-        <div class="card-header">
-          <div class="card-icon">
-            <svg viewBox="0 0 24 24" fill="none" stroke-linecap="round" stroke-linejoin="round">
-              <circle cx="12" cy="8" r="3.2" stroke-width="1.6" />
-              <path d="M5 20c0-3.5 3-6 7-6s7 2.5 7 6" stroke-width="1.6" />
-            </svg>
-          </div>
-          <div class="card-title">
-            <h3>User Directory Lookup</h3>
-            <p class="route-tag"><span class="route-dot" style="background:#5b9dfa"></span>Node.js → <span
-                class="route-dot" style="background:#34d399"></span>Python /user/:id</p>
-          </div>
-        </div>
-        <div class="form-group">
-          <label for="user-id">User ID</label>
-          <input type="text" id="user-id" value="42">
-        </div>
-        <div class="chip-group">
-          <span class="chip" onclick="setVal('user-id', '42')">User #42</span>
-          <span class="chip" onclick="setVal('user-id', '108')">User #108</span>
-          <span class="chip" onclick="setVal('user-id', 'invalid_abc')">Invalid ID</span>
-        </div>
-        <button class="btn" id="btn-user">
-          <div class="spinner"></div>
-          <span>Lookup user profile</span>
-        </button>
-      </div>
-
-      <!-- Card 6: Error & Fault Injection -->
-      <div class="card" style="--card-accent:#e11d48">
-        <div class="card-header">
-          <div class="card-icon">
-            <svg viewBox="0 0 24 24" fill="none" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M12 3l9 16H3z" stroke-width="1.6" stroke-linejoin="round" />
-              <path d="M12 10v4M12 17h.01" stroke-width="1.6" />
-            </svg>
-          </div>
-          <div class="card-title">
-            <h3>Error Fault Injection</h3>
-            <p class="route-tag"><span class="route-dot" style="background:#5b9dfa"></span>Node.js /error · <span
-                class="route-dot" style="background:#34d399"></span>Python /faulty-endpoint</p>
-          </div>
-        </div>
-        <div class="form-group">
-          <label>Simulate faults to test tracing in Tempo and Loki</label>
-        </div>
-        <button class="btn btn-danger" id="btn-error">
-          <div class="spinner"></div>
-          <span>Trigger 500 internal error</span>
-        </button>
-      </div>
-
-    </div>
-
-    <!-- Live Response Console -->
-    <div class="console-section">
-      <div class="console-header">
-        <h3>Live Response Telemetry</h3>
-        <div class="console-header-right">
-          <span class="status-badge" id="console-badge">READY</span>
-        </div>
-      </div>
-      <canvas id="scope-canvas"></canvas>
-      <div class="console-body">
-        <pre
-          id="console-output">// Execution output will appear here in real-time...<span class="cursor-blink">&nbsp;</span></pre>
-      </div>
     </div>
 
     <footer>Signal Deck · built for observing the Node.js + Python + LGTM mesh</footer>
@@ -1089,13 +1065,18 @@
         nodesGroup.add(glowMesh);
       });
 
-      const lineMat = new THREE.LineBasicMaterial({ color: 0x94a3b8, transparent: true, opacity: 0.75 });
-
-      CONNECTIONS.forEach(([i, j]) => {
-        const a = nodesGroup.children[i * 2].position;
-        const b = nodesGroup.children[j * 2].position;
-        const geom = new THREE.BufferGeometry().setFromPoints([a, b]);
-        const line = new THREE.Line(geom, lineMat);
+      CONNECTIONS.forEach(([fromIdx, toIdx]) => {
+        const from = NODE_DEFS[fromIdx];
+        const to = NODE_DEFS[toIdx];
+        const points = [
+          new THREE.Vector3(from.x, from.y, from.z),
+          new THREE.Vector3(to.x, to.y, to.z)
+        ];
+        const geom = new THREE.BufferGeometry().setFromPoints(points);
+        const mat = new THREE.LineBasicMaterial({
+          color: 0x94a3b8, transparent: true, opacity: 0.35
+        });
+        const line = new THREE.Line(geom, mat);
         linksGroup.add(line);
       });
 
@@ -1179,7 +1160,7 @@
 
     function trigger3DPulse() { pulseScale = 1.08; }
 
-    function flashNode(idx, colorAccentUnused) {
+    function flashNode(idx) {
       const mesh = nodesGroup.children[idx * 2];
       if (!mesh) return;
       mesh.userData.flashDuration = 500;
@@ -1249,71 +1230,69 @@
 
     function triggerScope(intensity) { scopeAmplitude = intensity; }
 
-    function drawScope() {
-      requestAnimationFrame(drawScope);
-      scopeAmplitude *= 0.94;
-      const t = Date.now() * 0.006;
-      const noise = (Math.random() - 0.5) * 0.05;
-      const wobble = Math.sin(t) * 0.06 * scopeAmplitude;
-      const v = wobble + noise * (0.25 + scopeAmplitude);
-      scopeBuffer.push(v);
+    function animateScope() {
+      requestAnimationFrame(animateScope);
+      const w = scopeCanvas.width;
+      const h = scopeCanvas.height;
+      const cy = h / 2;
+
       scopeBuffer.shift();
+      const noise = (Math.random() - 0.5) * (scopeAmplitude * 18);
+      const wave = Math.sin(Date.now() * 0.02) * (scopeAmplitude * 10);
+      scopeBuffer.push(noise + wave);
+      scopeAmplitude *= 0.94;
 
-      const w = scopeCanvas.width, h = scopeCanvas.height;
-      if (!w || !h) return;
-      scopeCtx.clearRect(0, 0, w, h);
+      scopeCtx.fillStyle = '#060911';
+      scopeCtx.fillRect(0, 0, w, h);
+
+      scopeCtx.strokeStyle = 'rgba(255, 255, 255, 0.04)';
+      scopeCtx.lineWidth = 1;
       scopeCtx.beginPath();
-      scopeCtx.strokeStyle = '#22d3ee';
-      scopeCtx.lineWidth = 2 * Math.min(window.devicePixelRatio, 2);
-      scopeCtx.shadowColor = '#22d3ee';
-      scopeCtx.shadowBlur = 6;
-      scopeBuffer.forEach((val, i) => {
-        const x = (i / (scopeBuffer.length - 1)) * w;
-        const y = h / 2 + val * h * 1.9;
-        if (i === 0) scopeCtx.moveTo(x, y); else scopeCtx.lineTo(x, y);
-      });
+      scopeCtx.moveTo(0, cy); scopeCtx.lineTo(w, cy);
       scopeCtx.stroke();
+
+      scopeCtx.strokeStyle = '#22d3ee';
+      scopeCtx.shadowColor = '#22d3ee';
+      scopeCtx.shadowBlur = 8;
+      scopeCtx.lineWidth = 2;
+      scopeCtx.beginPath();
+      const step = w / (scopeBuffer.length - 1);
+      for (let i = 0; i < scopeBuffer.length; i++) {
+        const x = i * step;
+        const y = cy + scopeBuffer[i];
+        if (i === 0) scopeCtx.moveTo(x, y);
+        else scopeCtx.lineTo(x, y);
+      }
+      scopeCtx.stroke();
+      scopeCtx.shadowBlur = 0;
     }
-    drawScope();
+    requestAnimationFrame(animateScope);
 
     // ============================================================================
-    // JSON SYNTAX HIGHLIGHTING FOR CONSOLE
+    // DASHBOARD INTERACTION HANDLERS
     // ============================================================================
-    function highlightJSON(json) {
-      const escaped = json
-        .replace(/&/g, '&amp;')
-        .replace(/</g, '&lt;')
-        .replace(/>/g, '&gt;');
-      return escaped.replace(
-        /("(\\u[a-zA-Z0-9]{4}|\\[^u]|[^\\"])*"(\s*:)?|\b(true|false)\b|\bnull\b|-?\d+(?:\.\d*)?(?:[eE][+\-]?\d+)?)/g,
-        (match) => {
-          let cls = 'num';
-          if (/^"/.test(match)) {
-            cls = /:\s*$/.test(match) ? 'key' : 'str';
-          } else if (/true|false/.test(match)) {
-            cls = 'bool';
-          } else if (/null/.test(match)) {
-            cls = 'null';
-          }
-          return `<span class="json-${cls}">${match}</span>`;
-        }
-      );
-    }
-
-    // ============================================================================
-    // APPLICATION LOGIC
-    // ============================================================================
-    const outputEl = document.getElementById('console-output');
     const badgeEl = document.getElementById('console-badge');
+    const outputEl = document.getElementById('console-output');
 
     function setVal(id, val) {
       document.getElementById(id).value = val;
     }
 
-    async function executeApiCall(btnId, actionName, fetchFn, path, pulseColor) {
-      if (path) pulseAlongPath(path, pulseColor);
-      triggerScope(1);
+    function highlightJSON(jsonStr) {
+      return jsonStr.replace(/("(\\u[a-zA-Z0-9]{4}|\\[^u]|[^\\"])*"(\s*:)?|\b(true|false|null)\b|-?\d+(?:\.\d*)?(?:[eE][+\-]?\d+)?)/g, match => {
+        let cls = 'json-num';
+        if (/^"/.test(match)) {
+          cls = /:$/.test(match) ? 'json-key' : 'json-str';
+        } else if (/true|false/.test(match)) {
+          cls = 'json-bool';
+        } else if (/null/.test(match)) {
+          cls = 'json-null';
+        }
+        return `<span class="${cls}">${match}</span>`;
+      });
+    }
 
+    async function executeApiCall(btnId, actionName, fetchFn, path3D, colorHex) {
       const btn = document.getElementById(btnId);
       const spinner = btn.querySelector('.spinner');
       const btnText = btn.querySelector('span');
@@ -1326,6 +1305,9 @@
       badgeEl.textContent = 'EXECUTING...';
       outputEl.innerHTML = `// Sending request for [${actionName}]...`;
       const start = performance.now();
+
+      pulseAlongPath(path3D, colorHex);
+      triggerScope(0.8);
 
       try {
         const res = await fetchFn();
@@ -1353,15 +1335,17 @@
         spinner.style.display = 'none';
         btnText.style.opacity = '1';
         btn.style.pointerEvents = 'auto';
-        outputEl.classList.remove('updated');
-        void outputEl.offsetWidth;
-        outputEl.classList.add('updated');
       }
     }
 
     document.getElementById('btn-fib').addEventListener('click', () => {
       const n = document.getElementById('fib-num').value;
-      executeApiCall('btn-fib', 'Fibonacci', () => fetch(`/calculate/${n}`), [0, 1, 2, 5], 0x22d3ee);
+      executeApiCall('btn-fib', 'Fibonacci', () => fetch(`/calculate/${n}`), [0, 1, 3], 0x22d3ee);
+    });
+
+    document.getElementById('btn-factorial').addEventListener('click', () => {
+      const n = document.getElementById('factorial-num').value;
+      executeApiCall('btn-factorial', 'Factorial Computation', () => fetch(`/math/factorial/${n}`), [0, 1, 3], 0xec4899);
     });
 
     document.getElementById('btn-text').addEventListener('click', () => {
@@ -1370,12 +1354,12 @@
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ text })
-      }), [1, 2, 4], 0x34d399);
+      }), [1, 3], 0x34d399);
     });
 
     document.getElementById('btn-prime').addEventListener('click', () => {
       const n = document.getElementById('prime-num').value;
-      executeApiCall('btn-prime', 'Prime Factors', () => fetch(`/math/prime-factors/${n}`), [1, 2, 3], 0xa78bfa);
+      executeApiCall('btn-prime', 'Prime Factors', () => fetch(`/math/prime-factors/${n}`), [1, 3], 0xa78bfa);
     });
 
     document.getElementById('btn-aggregate').addEventListener('click', () => {
@@ -1385,16 +1369,16 @@
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ values })
-      }), [1, 2, 3], 0xfbbf24);
+      }), [1, 3], 0xd97706);
     });
 
     document.getElementById('btn-user').addEventListener('click', () => {
       const id = document.getElementById('user-id').value;
-      executeApiCall('btn-user', 'User Directory', () => fetch(`/user/${id}`), [0, 1, 2, 4], 0x5b9dfa);
+      executeApiCall('btn-user', 'User Directory', () => fetch(`/user/${id}`), [0, 1, 2, 3], 0x38bdf8);
     });
 
     document.getElementById('btn-error').addEventListener('click', () => {
-      executeApiCall('btn-error', 'Fault Injection', () => fetch('/error'), [0, 2, 5], 0xfb7185);
+      executeApiCall('btn-error', 'Fault Injection', () => fetch('/error'), [0, 1, 2, 3], 0xfb7185);
     });
   </script>
 </body>

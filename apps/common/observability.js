@@ -15,7 +15,7 @@ if (isObservabilityEnabled) {
   const { OTLPMetricExporter } = require('@opentelemetry/exporter-metrics-otlp-http');
   const { OTLPLogExporter } = require('@opentelemetry/exporter-logs-otlp-http');
   const { PeriodicExportingMetricReader } = require('@opentelemetry/sdk-metrics');
-  const { SimpleLogRecordProcessor, LoggerProvider } = require('@opentelemetry/sdk-logs');
+  const { BatchLogRecordProcessor, LoggerProvider } = require('@opentelemetry/sdk-logs');
   const { logs } = require('@opentelemetry/api-logs');
 
   const otlpEndpoint = process.env.OTEL_EXPORTER_OTLP_ENDPOINT || 'http://alloy:4318';
@@ -23,10 +23,10 @@ if (isObservabilityEnabled) {
   const otlpTracesEndpoint = process.env.OTEL_EXPORTER_OTLP_TRACES_ENDPOINT || `${otlpEndpoint}/v1/traces`;
   const otlpMetricsEndpoint = process.env.OTEL_EXPORTER_OTLP_METRICS_ENDPOINT || `${otlpEndpoint}/v1/metrics`;
 
-  // 1. Configure OpenTelemetry LoggerProvider
+  // 1. Configure OpenTelemetry LoggerProvider (Batch processing for high performance)
   const loggerProvider = new LoggerProvider({
     processors: [
-      new SimpleLogRecordProcessor(new OTLPLogExporter({
+      new BatchLogRecordProcessor(new OTLPLogExporter({
         url: otlpLogsEndpoint,
       }))
     ]

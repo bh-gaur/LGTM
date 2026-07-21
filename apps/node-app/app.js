@@ -30,10 +30,14 @@ const PYTHON_SERVICE_URL = process.env.PYTHON_SERVICE_URL || 'http://python-app:
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 /**
- * Clean HTTP helper using native fetch for downstream API calls.
+ * High-concurrency HTTP helper using native fetch with keepalive socket pooling.
  */
 async function fetchJson(url, options = {}) {
-  const response = await fetch(url, options);
+  const fetchOptions = {
+    keepalive: true,
+    ...options
+  };
+  const response = await fetch(url, fetchOptions);
   let data;
   try {
     data = await response.json();
@@ -123,6 +127,21 @@ app.get('/math/prime-factors/:n', async (req, res) => {
     res.status(status).json(data);
   } catch (err) {
     logger.error('Failed to proxy prime factorization request', { error: err.message });
+    res.status(500).json({ error: 'Failed to contact Python backend' });
+  }
+});
+
+/**
+ * 3b. Factorial Calculation Proxy Route -> Python
+ */
+app.get('/math/factorial/:n', async (req, res) => {
+  const n = req.params.n;
+  logger.info(`Proxying factorial request for N=${n} to Python backend`);
+  try {
+    const { status, data } = await fetchJson(`${PYTHON_SERVICE_URL}/math/factorial/${n}`);
+    res.status(status).json(data);
+  } catch (err) {
+    logger.error('Failed to proxy factorial request', { error: err.message });
     res.status(500).json({ error: 'Failed to contact Python backend' });
   }
 });

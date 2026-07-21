@@ -32,11 +32,11 @@ POSTGRES_PASSWORD = os.environ.get("POSTGRES_PASSWORD", "lgtmpass")
 db_pool = None
 
 def init_db():
-    """Initializes PostgreSQL connection pool and seeds users table."""
+    """Initializes thread-safe PostgreSQL connection pool (min 5, max 50) and seeds users table."""
     global db_pool
     try:
-        db_pool = psycopg2.pool.SimpleConnectionPool(
-            1, 10,
+        db_pool = psycopg2.pool.ThreadedConnectionPool(
+            5, 50,
             host=POSTGRES_HOST,
             port=POSTGRES_PORT,
             dbname=POSTGRES_DB,
@@ -203,6 +203,46 @@ def prime_factors(n):
         "number": n,
         "factors": factors,
         "is_prime": len(factors) == 1,
+        "service": "python-app"
+    })
+
+
+@app.route("/math/factorial/<int:n>")
+def factorial(n):
+    """
+    Computes factorial N! = N * (N-1) * ... * 1.
+    Captures span attributes `math.input` and `math.factorial_digits`.
+    """
+    if n < 0 or n > 2000:
+        return jsonify({
+            "status": "error",
+            "message": "N must be an integer between 0 and 2000"
+        }), 400
+
+    logger.info(f"Computing factorial for N={n}")
+    start_time = time.time()
+    
+    with tracer.start_as_current_span("FactorialComputation") as span:
+        span.set_attribute("math.input", n)
+        import math
+        res = math.factorial(n)
+        res_str = str(res)
+        digits = len(res_str)
+        
+        span.set_attribute("math.factorial_digits", digits)
+        logger.info(f"Factorial calculation for N={n} completed. Digits={digits}")
+        
+    duration = time.time() - start_time
+    task_duration_histogram.record(duration, {"task_type": "factorial_computation"})
+
+    display_res = res_str if digits <= 100 else f"{res_str[:40]}... ({digits} total digits) ...{res_str[-20:]}"
+
+    return jsonify({
+        "status": "success",
+        "number": n,
+        "factorial": display_res,
+        "digits": digits,
+        "duration_sec": duration,
         "service": "python-app"
     })
 
