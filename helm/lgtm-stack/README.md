@@ -1,15 +1,16 @@
 # LGTM Stack Kubernetes Helm Chart
 
-This Helm chart packages and deploys a complete distributed telemetry stack (Grafana, Loki, Tempo, Mimir, Grafana Alloy) alongside a Node.js Express entrypoint service and a downstream Python Flask processing service on Kubernetes (configured for EKS).
+This Helm chart packages and deploys a complete distributed telemetry stack (Grafana, Loki, Tempo, Mimir, Grafana Alloy) alongside a PostgreSQL database infrastructure, a Node.js Express entrypoint service, and a downstream Python Flask processing service on Kubernetes (configured for EKS).
 
 ## Chart Components
 
-- **Node.js App (`node-app`):** Stateful metrics emitter exposing OpenMetrics exemplars on `/metrics` and auto-instrumented tracing.
-- **Python App (`python-app`):** Native OpenTelemetry SDK integration for traces, logs, and metrics (with active exemplars).
-- **Loki:** Log storage database in monolithic/single-binary mode.
-- **Tempo:** Distributed trace storage database in monolithic/single-binary mode.
-- **Mimir:** Scalable metrics storage database in monolithic/single-binary mode.
-- **Grafana Alloy:** Aggregates OTLP telemetry and runs Kubernetes API discovery to scrape annotated metric targets (like `node-app`).
+- **Node.js App (`node-app`):** Gateway API exposing OpenMetrics exemplars on `/metrics` and serving the Glassmorphic 3D Control Center UI.
+- **Python App (`python-app`):** Native OpenTelemetry SDK integration for traces, logs, and metrics (with active exemplars) and PostgreSQL database connectivity.
+- **PostgreSQL Database (`postgres`):** Stateful relational database providing user directory records and SQL query tracing.
+- **Loki:** Log storage database in single-binary mode.
+- **Tempo:** Distributed trace storage database in single-binary mode.
+- **Mimir:** Scalable metrics storage database in single-binary mode.
+- **Grafana Alloy:** Aggregates OTLP telemetry and runs Kubernetes API discovery to scrape annotated metric targets.
 - **Grafana:** Preconfigured with Loki, Tempo, and Mimir datasources, enabling seamless logs-to-traces and metrics-to-traces exemplar navigations.
 
 ---
@@ -20,15 +21,29 @@ You can modify several configuration points by overriding values in `values.yaml
 
 | Value | Default | Description |
 | :--- | :--- | :--- |
-| `global.storageClass` | `""` | The Kubernetes `StorageClass` to use for PV claims (e.g., `gp3` for EKS). |
+| `global.enableObservability` | `true` | Toggle OpenTelemetry tracing, metrics, and OTLP logging globally. |
+| `global.storageClass` | `"local-path"` | The Kubernetes `StorageClass` to use for PV claims (e.g., `gp3` for AWS EKS). |
 | `nodeApp.image.repository` | `"lgtm-node-app"` | Container image repository for the Node.js service. |
-| `nodeApp.image.tag` | `"latest"` | Image tag for the Node.js service. |
 | `pythonApp.image.repository` | `"lgtm-python-app"` | Container image repository for the Python service. |
-| `pythonApp.image.tag` | `"latest"` | Image tag for the Python service. |
-| `grafana.service.type` | `"LoadBalancer"` | Type of Service to expose Grafana (e.g., `LoadBalancer` or `NodePort`). |
-| `loki.persistence.size` | `"10Gi"` | Storage space allocated for Loki logs. |
-| `mimir.persistence.size` | `"10Gi"` | Storage space allocated for Mimir metrics. |
+| `postgres.database` | `"lgtmdb"` | Database name for PostgreSQL. |
+| `postgres.user` | `"lgtmuser"` | Username for PostgreSQL authentication. |
+| `postgres.password` | `"lgtmpass"` | Password for PostgreSQL authentication. |
+| `postgres.persistence.size` | `"1Gi"` | Storage space allocated for PostgreSQL database. |
+| `loki.persistence.size` | `"5Gi"` | Storage space allocated for Loki logs. |
+| `mimir.persistence.size` | `"5Gi"` | Storage space allocated for Mimir metrics. |
 | `tempo.persistence.size` | `"10Gi"` | Storage space allocated for Tempo traces. |
+
+> [!IMPORTANT]
+> **Production Storage Sizing Note**:
+> When deploying to high-volume production clusters, increase persistent storage sizes accordingly:
+> ```bash
+> helm install lgtm ./helm/lgtm-stack \
+>   --set global.storageClass="gp3" \
+>   --set loki.persistence.size="50Gi" \
+>   --set mimir.persistence.size="50Gi" \
+>   --set tempo.persistence.size="100Gi" \
+>   --set postgres.persistence.size="20Gi"
+> ```
 
 ---
 
@@ -50,7 +65,7 @@ docker push <aws_account_id>.dkr.ecr.<region>.amazonaws.com/lgtm-python-app:late
 ```
 
 ### Step 2: Install the Chart
-Install the chart into your cluster, overriding the image values to point to your ECR repositories:
+Install the chart into your cluster, overriding image values:
 ```bash
 helm install lgtm ./helm/lgtm-stack \
   --set global.storageClass="gp3" \
@@ -63,40 +78,3 @@ Ensure that all pods, services, and statefulsets start up correctly:
 ```bash
 kubectl get all -o wide
 ```
-
----
-
-## Local Validation
-
-If you want to validate or test the templates locally without executing them against a Kubernetes cluster, run:
-
-```bash
-# Lint chart structures
-helm lint ./helm/lgtm-stack
-
-# Render YAML files dry-run
-helm template lgtm ./helm/lgtm-stack
-```
-
-## If running on Killercoda
-
-```bash
-kubectl create secret docker-registry dockerhub-secret \
-  --docker-server=https://docker.io \
-  --docker-username=<docker-username> \
-  --docker-password=<docker-token> \
-  --docker-email=<docker-email> 
-
-helm install lgtm ./helm/lgtm-stack \
-  --set global.storageClass="local-path" \
-  --set nodeApp.image.repository="<docker-username>/lgtm-node-app" \
-  --set pythonApp.image.repository="<docker-username>/lgtm-python-app"
-```
-
-### For port exposing
-
-```
-change service type to node port and update node ports in killercoda ui to access grafana , node-app, python-app
-
-```
-

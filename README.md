@@ -136,6 +136,20 @@ helm install lgtm ./helm/lgtm-stack \
   --set global.storageClass="gp3"
 ```
 
+> [!IMPORTANT]
+> **Production Storage Configuration Note**:
+> For production environments with high throughput, increase the persistent volume sizes for stateful components (Loki, Mimir, Tempo, and PostgreSQL) via `--set` flags or in `values.yaml`:
+> ```bash
+> helm install lgtm ./helm/lgtm-stack \
+>   --set global.storageClass="gp3" \
+>   --set loki.persistence.size="50Gi" \
+>   --set mimir.persistence.size="50Gi" \
+>   --set tempo.persistence.size="100Gi" \
+>   --set postgres.persistence.size="20Gi"
+> ```
+
+Refer to [helm/lgtm-stack/README.md](file:///Users/vishnu/learning/b_github/z_etc/LGTM/helm/lgtm-stack/README.md) for more details.
+
 ---
 
 ## ⚙️ Environment Variables & ConfigMap Reference
