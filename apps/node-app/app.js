@@ -143,7 +143,11 @@ app.get('/calculate/:num', async (req, res) => {
  * 3. Prime Factorization Proxy Route -> Python
  */
 app.get('/math/prime-factors/:n', async (req, res) => {
-  const n = req.params.n;
+  const n = parseInt(req.params.n, 10);
+  if (isNaN(n) || n <= 0) {
+    logger.warn(`Invalid prime factors N value: ${req.params.n}`);
+    return res.status(400).json({ error: 'Parameter N must be a valid positive integer' });
+  }
   logger.info(`Proxying prime factorization request for N=${n} to Python backend`);
   try {
     const { status, data } = await fetchJson(`${PYTHON_SERVICE_URL}/math/prime-factors/${n}`);
@@ -158,7 +162,11 @@ app.get('/math/prime-factors/:n', async (req, res) => {
  * 3b. Factorial Calculation Proxy Route -> Python
  */
 app.get('/math/factorial/:n', async (req, res) => {
-  const n = req.params.n;
+  const n = parseInt(req.params.n, 10);
+  if (isNaN(n) || n <= 0) {
+    logger.warn(`Invalid factorial N value: ${req.params.n}`);
+    return res.status(400).json({ error: 'Parameter N must be a valid positive integer' });
+  }
   logger.info(`Proxying factorial request for N=${n} to Python backend`);
   try {
     const { status, data } = await fetchJson(`${PYTHON_SERVICE_URL}/math/factorial/${n}`);
@@ -324,7 +332,11 @@ app.get('/multi-step/:id', async (req, res) => {
  * 9. User Database Lookup Simulator
  */
 app.get('/user/:id', async (req, res) => {
-  const userId = req.params.id;
+  const userId = parseInt(req.params.id, 10);
+  if (isNaN(userId)) {
+    logger.warn(`Invalid user ID query parameter value: ${req.params.id}`);
+    return res.status(400).json({ error: 'User ID must be a valid integer' });
+  }
   logger.info(`Fetching user details for ID=${userId}`);
 
   try {
