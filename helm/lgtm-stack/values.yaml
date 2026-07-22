@@ -40,6 +40,17 @@ postgres:
   persistence:
     size: "1Gi"
 
+# Apache Kafka Message Broker configuration
+kafka:
+  replicaCount: 1
+  image:
+    repository: "apache/kafka"
+    tag: "latest"
+    pullPolicy: "IfNotPresent"
+  service:
+    type: "ClusterIP"
+    port: 9092
+
 # Grafana Visualization configuration
 grafana:
   replicaCount: 1

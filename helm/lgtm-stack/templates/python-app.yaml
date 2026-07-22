@@ -39,6 +39,8 @@ spec:
               value: "{{ .Values.postgres.user }}"
             - name: POSTGRES_PASSWORD
               value: "{{ .Values.postgres.password }}"
+            - name: KAFKA_BROKERS
+              value: "kafka:{{ .Values.kafka.service.port | default 9092 }}"
             - name: OTEL_SERVICE_NAME
               value: "python-app"
             - name: OTEL_EXPORTER_OTLP_ENDPOINT

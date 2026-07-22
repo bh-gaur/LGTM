@@ -19,8 +19,26 @@ app.use(express.json());
 // Serve static web frontend UI from public/ directory
 app.use(express.static(path.join(__dirname, 'public')));
 
-const PORT = process.env.PORT || 8081;
-const PYTHON_SERVICE_URL = process.env.PYTHON_SERVICE_URL || 'http://python-app:5000';
+const KAFKA_BROKERS = (process.env.KAFKA_BROKERS || 'kafka:9092').split(',');
+
+let kafkaProducer = null;
+
+async function initKafkaProducer() {
+  try {
+    const { Kafka } = require('kafkajs');
+    const kafka = new Kafka({
+      clientId: 'node-app-producer',
+      brokers: KAFKA_BROKERS,
+      retry: { retries: 5 }
+    });
+    kafkaProducer = kafka.producer();
+    await kafkaProducer.connect();
+    logger.info(`Successfully connected Kafka Producer to brokers: ${KAFKA_BROKERS.join(',')}`);
+  } catch (err) {
+    logger.warning(`Kafka Producer connection warning: ${err.message}`);
+  }
+}
+initKafkaProducer();
 
 // ============================================================================
 // HELPERS
@@ -320,6 +338,54 @@ app.get('/user/:id', async (req, res) => {
   } catch (err) {
     logger.error('Database connection simulated failure', { error: err.message });
     res.status(500).json({ error: 'Database service unavailable' });
+  }
+});
+
+/**
+ * 9b. Publish Asynchronous Task Event to Kafka Broker
+ */
+app.post('/kafka/publish', async (req, res) => {
+  const payload = req.body || {};
+  const topic = payload.topic || 'task-events';
+  const messageText = payload.message || 'Sample event payload from Node.js Gateway';
+
+  logger.info(`Publishing event to Kafka topic '${topic}'`);
+
+  if (!kafkaProducer) {
+    return res.status(503).json({
+      status: 'error',
+      message: 'Kafka Producer is not connected to broker'
+    });
+  }
+
+  try {
+    const record = {
+      event_id: `evt_${Date.now()}`,
+      payload: messageText,
+      timestamp: new Date().toISOString(),
+      source: 'node-app'
+    };
+
+    await kafkaProducer.send({
+      topic,
+      messages: [
+        {
+          key: record.event_id,
+          value: JSON.stringify(record)
+        }
+      ]
+    });
+
+    logger.info(`Event published to Kafka topic '${topic}' successfully.`);
+    res.json({
+      status: 'published',
+      topic,
+      event: record,
+      brokers: KAFKA_BROKERS
+    });
+  } catch (err) {
+    logger.error('Failed to publish event to Kafka', { error: err.message });
+    res.status(500).json({ status: 'error', message: err.message });
   }
 });
 

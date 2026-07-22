@@ -53,6 +53,13 @@ def init_db():
                     role VARCHAR(50),
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 );
+                CREATE TABLE IF NOT EXISTS kafka_events (
+                    id SERIAL PRIMARY KEY,
+                    event_id VARCHAR(100),
+                    topic VARCHAR(100),
+                    payload TEXT,
+                    received_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                );
             """)
             cur.execute("""
                 INSERT INTO users (id, name, email, role)
@@ -64,9 +71,55 @@ def init_db():
             """)
             conn.commit()
         db_pool.putconn(conn)
-        logger.info("Successfully connected to PostgreSQL database and initialized users table.")
+        logger.info("Successfully connected to PostgreSQL database and initialized users & kafka_events tables.")
     except Exception as e:
         logger.warning(f"PostgreSQL connection / initialization warning: {e}")
+
+# Kafka Consumer Background Thread
+KAFKA_BROKERS = os.environ.get("KAFKA_BROKERS", "kafka:9092")
+
+def start_kafka_consumer():
+    """Background thread consuming events from Kafka topic 'task-events'."""
+    import threading
+    import json
+    def consume_loop():
+        try:
+            from kafka import KafkaConsumer
+            consumer = KafkaConsumer(
+                'task-events',
+                bootstrap_servers=KAFKA_BROKERS.split(','),
+                value_deserializer=lambda m: json.loads(m.decode('utf-8')),
+                auto_offset_reset='earliest',
+                group_id='python-app-consumer-group'
+            )
+            logger.info(f"Successfully started Kafka consumer thread listening on topic 'task-events' ({KAFKA_BROKERS})")
+            for message in consumer:
+                event_data = message.value or {}
+                event_id = event_data.get("event_id", "unknown")
+                payload_str = str(event_data.get("payload", ""))
+                logger.info(f"Received Kafka event '{event_id}' on topic '{message.topic}': {payload_str}")
+                
+                if db_pool:
+                    conn = None
+                    try:
+                        conn = db_pool.getconn()
+                        with conn.cursor() as cur:
+                            cur.execute(
+                                "INSERT INTO kafka_events (event_id, topic, payload) VALUES (%s, %s, %s);",
+                                (event_id, message.topic, payload_str)
+                            )
+                            conn.commit()
+                        logger.info(f"Kafka event '{event_id}' successfully saved to PostgreSQL audit table.")
+                    except Exception as db_err:
+                        logger.error(f"Failed to write Kafka event to PostgreSQL: {db_err}")
+                    finally:
+                        if conn:
+                            db_pool.putconn(conn)
+        except Exception as e:
+            logger.warning(f"Kafka Consumer thread warning / disconnected: {e}")
+
+    t = threading.Thread(target=consume_loop, daemon=True)
+    t.start()
 
 # ============================================================================
 # INITIALIZATION & CONFIGURATION
@@ -81,6 +134,9 @@ tracer = trace.get_tracer("python-app-tracer")
 
 # Initialize database pool
 init_db()
+
+# Start background Kafka consumer thread
+start_kafka_consumer()
 
 # ============================================================================
 # APPLICATION ROUTES

@@ -754,6 +754,7 @@
       <canvas id="canvas3d"></canvas>
       <div class="topology-legend">
         <span class="legend-item"><span class="legend-dot" style="background:#5b9dfa"></span>Node.js</span>
+        <span class="legend-item"><span class="legend-dot" style="background:#f59e0b"></span>Kafka</span>
         <span class="legend-item"><span class="legend-dot" style="background:#34d399"></span>Python</span>
         <span class="legend-item"><span class="legend-dot" style="background:#38bdf8"></span>PostgreSQL</span>
         <span class="legend-item"><span class="legend-dot" style="background:#a78bfa"></span>Alloy</span>
@@ -963,6 +964,33 @@
           </button>
         </div>
 
+        <!-- Card 8: Kafka Event Producer -->
+        <div class="card" style="--card-accent:#f59e0b">
+          <div class="card-header">
+            <div class="card-icon">
+              <svg viewBox="0 0 24 24" fill="none" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z" stroke-width="1.6" />
+              </svg>
+            </div>
+            <div class="card-title">
+              <h3>Kafka Event Producer</h3>
+              <p class="route-tag"><span class="route-dot" style="background:#5b9dfa"></span>Node.js → <span class="route-dot" style="background:#f59e0b"></span>Kafka → <span class="route-dot" style="background:#34d399"></span>Python /kafka/publish</p>
+            </div>
+          </div>
+          <div class="form-group">
+            <label for="kafka-msg">Event Payload</label>
+            <input type="text" id="kafka-msg" value="Process high-priority analytics task event via Kafka">
+          </div>
+          <div class="chip-group">
+            <span class="chip" onclick="setVal('kafka-msg', 'Order created event #1092')">Order Event</span>
+            <span class="chip" onclick="setVal('kafka-msg', 'Telemetry anomaly detected')">Anomaly Alert</span>
+          </div>
+          <button class="btn" id="btn-kafka">
+            <div class="spinner"></div>
+            <span>Publish event to Kafka</span>
+          </button>
+        </div>
+
       </div>
 
       <!-- Live Response Console (Side-by-Side Sticky Panel) -->
@@ -992,9 +1020,10 @@
     let pulseScale = 1;
 
     const NODE_DEFS = [
-      { name: 'Node.js', x: -4.5, y: 1, z: 0, color: 0x5b9dfa },
-      { name: 'Python', x: -2.2, y: -0.8, z: 0.5, color: 0x34d399 },
-      { name: 'PostgreSQL', x: -4.0, y: -2.2, z: -0.5, color: 0x38bdf8 },
+      { name: 'Node.js', x: -4.8, y: 1, z: 0, color: 0x5b9dfa },
+      { name: 'Kafka', x: -2.8, y: 2.1, z: 0.2, color: 0xf59e0b },
+      { name: 'Python', x: -1.8, y: -0.8, z: 0.5, color: 0x34d399 },
+      { name: 'PostgreSQL', x: -3.8, y: -2.2, z: -0.5, color: 0x38bdf8 },
       { name: 'Alloy', x: 0.8, y: 1.2, z: -0.5, color: 0xa78bfa },
       { name: 'Mimir', x: 4, y: 2, z: 0, color: 0xd97706 },
       { name: 'Loki', x: 4.3, y: 0, z: 0.5, color: 0x0284c7 },
@@ -1002,7 +1031,7 @@
     ];
 
     const CONNECTIONS = [
-      [0, 1], [1, 2], [0, 3], [1, 3], [3, 4], [3, 5], [3, 6]
+      [0, 1], [1, 2], [2, 3], [0, 4], [2, 4], [4, 5], [4, 6], [4, 7]
     ];
 
     function init3D() {
@@ -1340,12 +1369,12 @@
 
     document.getElementById('btn-fib').addEventListener('click', () => {
       const n = document.getElementById('fib-num').value;
-      executeApiCall('btn-fib', 'Fibonacci', () => fetch(`/calculate/${n}`), [0, 1, 3], 0x22d3ee);
+      executeApiCall('btn-fib', 'Fibonacci', () => fetch(`/calculate/${n}`), [0, 2, 4], 0x22d3ee);
     });
 
     document.getElementById('btn-factorial').addEventListener('click', () => {
       const n = document.getElementById('factorial-num').value;
-      executeApiCall('btn-factorial', 'Factorial Computation', () => fetch(`/math/factorial/${n}`), [0, 1, 3], 0xec4899);
+      executeApiCall('btn-factorial', 'Factorial Computation', () => fetch(`/math/factorial/${n}`), [0, 2, 4], 0xec4899);
     });
 
     document.getElementById('btn-text').addEventListener('click', () => {
@@ -1354,12 +1383,12 @@
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ text })
-      }), [1, 3], 0x34d399);
+      }), [2, 4], 0x34d399);
     });
 
     document.getElementById('btn-prime').addEventListener('click', () => {
       const n = document.getElementById('prime-num').value;
-      executeApiCall('btn-prime', 'Prime Factors', () => fetch(`/math/prime-factors/${n}`), [1, 3], 0xa78bfa);
+      executeApiCall('btn-prime', 'Prime Factors', () => fetch(`/math/prime-factors/${n}`), [2, 4], 0xa78bfa);
     });
 
     document.getElementById('btn-aggregate').addEventListener('click', () => {
@@ -1369,16 +1398,25 @@
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ values })
-      }), [1, 3], 0xd97706);
+      }), [2, 4], 0xd97706);
     });
 
     document.getElementById('btn-user').addEventListener('click', () => {
       const id = document.getElementById('user-id').value;
-      executeApiCall('btn-user', 'User Directory', () => fetch(`/user/${id}`), [0, 1, 2, 3], 0x38bdf8);
+      executeApiCall('btn-user', 'User Directory', () => fetch(`/user/${id}`), [0, 2, 3, 4], 0x38bdf8);
     });
 
     document.getElementById('btn-error').addEventListener('click', () => {
-      executeApiCall('btn-error', 'Fault Injection', () => fetch('/error'), [0, 1, 2, 3], 0xfb7185);
+      executeApiCall('btn-error', 'Fault Injection', () => fetch('/error'), [0, 2, 3, 4], 0xfb7185);
+    });
+
+    document.getElementById('btn-kafka').addEventListener('click', () => {
+      const message = document.getElementById('kafka-msg').value;
+      executeApiCall('btn-kafka', 'Publish Kafka Event', () => fetch('/kafka/publish', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message, topic: 'task-events' })
+      }), [0, 1, 2, 3, 4], 0xf59e0b);
     });
   </script>
 </body>

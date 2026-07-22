@@ -36,6 +36,8 @@ spec:
               value: "{{ .Values.global.enableObservability }}"
             - name: PYTHON_SERVICE_URL
               value: "http://python-app:{{ .Values.pythonApp.service.port }}"
+            - name: KAFKA_BROKERS
+              value: "kafka:{{ .Values.kafka.service.port | default 9092 }}"
             - name: OTEL_SERVICE_NAME
               value: "node-app"
             - name: OTEL_METRICS_EXEMPLAR_FILTER

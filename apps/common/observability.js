@@ -35,6 +35,8 @@ if (isObservabilityEnabled) {
   });
   logs.setGlobalLoggerProvider(loggerProvider);
 
+  const { KafkaJsInstrumentor } = require('@opentelemetry/instrumentation-kafkajs');
+
   // 2. Initialize OpenTelemetry NodeSDK
   const sdk = new NodeSDK({
     serviceName: process.env.OTEL_SERVICE_NAME || 'node-app',
@@ -55,6 +57,7 @@ if (isObservabilityEnabled) {
           disableLogSending: true,
         },
       }),
+      new KafkaJsInstrumentor(),
     ],
   });
 

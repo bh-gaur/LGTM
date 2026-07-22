@@ -84,13 +84,21 @@ if is_obs_enabled:
         description="Total number of data items processed in Python"
     )
 
+    from opentelemetry.instrumentation.flask import FlaskInstrumentor
+    from opentelemetry.instrumentation.psycopg2 import Psycopg2Instrumentor
+    from opentelemetry.instrumentation.kafka import KafkaInstrumentor
+
     def setup_observability(app: Flask):
-        """Instruments the Flask app and Psycopg2 database calls with OpenTelemetry."""
+        """Instruments Flask app, Psycopg2 database, and Kafka messaging with OpenTelemetry."""
         FlaskInstrumentor().instrument_app(app)
         try:
             Psycopg2Instrumentor().instrument()
         except Exception as e:
             logger.warning(f"Psycopg2Instrumentor warning: {e}")
+        try:
+            KafkaInstrumentor().instrument()
+        except Exception as e:
+            logger.warning(f"KafkaInstrumentor warning: {e}")
 
 else:
     print(f"[!] Observability is DISABLED for {service_name} via ENABLE_OBSERVABILITY flag")
