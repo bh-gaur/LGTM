@@ -32,8 +32,17 @@ POSTGRES_PASSWORD = os.environ.get("POSTGRES_PASSWORD", "lgtmpass")
 db_pool = None
 
 def init_db():
-    """Initializes thread-safe PostgreSQL connection pool (min 5, max 50) and seeds users table."""
+    """Runs database migrations via Alembic and initializes the thread-safe PostgreSQL pool."""
     global db_pool
+    try:
+        from alembic.config import Config
+        from alembic import command
+        alembic_cfg = Config("alembic.ini")
+        command.upgrade(alembic_cfg, "head")
+        logger.info("Database migrations successfully executed via Alembic.")
+    except Exception as e:
+        logger.warning(f"Alembic auto-migration warning: {e}")
+
     try:
         db_pool = psycopg2.pool.ThreadedConnectionPool(
             5, 50,
@@ -43,48 +52,34 @@ def init_db():
             user=POSTGRES_USER,
             password=POSTGRES_PASSWORD
         )
-        conn = db_pool.getconn()
-        with conn.cursor() as cur:
-            cur.execute("""
-                CREATE TABLE IF NOT EXISTS users (
-                    id INT PRIMARY KEY,
-                    name VARCHAR(100),
-                    email VARCHAR(100),
-                    role VARCHAR(50),
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                );
-                CREATE TABLE IF NOT EXISTS kafka_events (
-                    id SERIAL PRIMARY KEY,
-                    event_id VARCHAR(100),
-                    topic VARCHAR(100),
-                    payload TEXT,
-                    received_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                );
-            """)
-            cur.execute("""
-                INSERT INTO users (id, name, email, role)
-                VALUES 
-                    (42, 'Alice Smith', 'alice@lgtm.local', 'editor'),
-                    (108, 'Bob Jones', 'bob@lgtm.local', 'viewer'),
-                    (200, 'Charlie Dev', 'charlie@lgtm.local', 'admin')
-                ON CONFLICT (id) DO NOTHING;
-            """)
-            conn.commit()
-        db_pool.putconn(conn)
-        logger.info("Successfully connected to PostgreSQL database and initialized users & kafka_events tables.")
+        logger.info("Successfully connected to PostgreSQL database and initialized thread-safe connection pool.")
     except Exception as e:
-        logger.warning(f"PostgreSQL connection / initialization warning: {e}")
+        logger.warning(f"PostgreSQL connection / pool initialization warning: {e}")
 
 # Kafka Consumer Background Thread
 KAFKA_BROKERS = os.environ.get("KAFKA_BROKERS", "kafka:9092")
 
 def start_kafka_consumer():
-    """Background thread consuming events from Kafka topic 'task-events'."""
+    """Background thread consuming events from Kafka topic 'task-events' with 3 retries and a Dead-Letter Queue (DLQ)."""
     import threading
     import json
+    import time
+    from kafka import KafkaConsumer, KafkaProducer
+    
+    # Initialize DLQ Producer
+    dlq_producer = None
+    try:
+        dlq_producer = KafkaProducer(
+            bootstrap_servers=KAFKA_BROKERS.split(','),
+            value_serializer=lambda v: json.dumps(v).encode('utf-8'),
+            retries=5
+        )
+        logger.info("Successfully connected Kafka DLQ Producer.")
+    except Exception as ex:
+        logger.warning(f"Failed to initialize Kafka DLQ Producer: {ex}")
+
     def consume_loop():
         try:
-            from kafka import KafkaConsumer
             consumer = KafkaConsumer(
                 'task-events',
                 bootstrap_servers=KAFKA_BROKERS.split(','),
@@ -99,22 +94,49 @@ def start_kafka_consumer():
                 payload_str = str(event_data.get("payload", ""))
                 logger.info(f"Received Kafka event '{event_id}' on topic '{message.topic}': {payload_str}")
                 
-                if db_pool:
-                    conn = None
-                    try:
-                        conn = db_pool.getconn()
-                        with conn.cursor() as cur:
-                            cur.execute(
-                                "INSERT INTO kafka_events (event_id, topic, payload) VALUES (%s, %s, %s);",
-                                (event_id, message.topic, payload_str)
-                            )
-                            conn.commit()
-                        logger.info(f"Kafka event '{event_id}' successfully saved to PostgreSQL audit table.")
-                    except Exception as db_err:
-                        logger.error(f"Failed to write Kafka event to PostgreSQL: {db_err}")
-                    finally:
-                        if conn:
-                            db_pool.putconn(conn)
+                success = False
+                max_retries = 3
+                for attempt in range(1, max_retries + 1):
+                    if db_pool:
+                        conn = None
+                        try:
+                            conn = db_pool.getconn()
+                            with conn.cursor() as cur:
+                                cur.execute(
+                                    "INSERT INTO kafka_events (event_id, topic, payload) VALUES (%s, %s, %s);",
+                                    (event_id, message.topic, payload_str)
+                                )
+                                conn.commit()
+                            logger.info(f"Kafka event '{event_id}' successfully saved to PostgreSQL on attempt {attempt}.")
+                            success = True
+                            break
+                        except Exception as db_err:
+                            logger.warning(f"Database write attempt {attempt} failed for event '{event_id}': {db_err}")
+                            time.sleep(1)
+                        finally:
+                            if conn:
+                                db_pool.putconn(conn)
+                    else:
+                        logger.warning("Database connection pool is unavailable. Cannot process event.")
+                        time.sleep(1)
+
+                if not success:
+                    logger.error(f"Event '{event_id}' failed all {max_retries} attempts. Routing to DLQ topic 'task-events-dlq'.")
+                    if dlq_producer:
+                        try:
+                            dlq_record = {
+                                "original_event": event_data,
+                                "failed_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+                                "error": "Failed to write audit log to database after 3 retries",
+                                "source": "python-app"
+                            }
+                            dlq_producer.send('task-events-dlq', key=event_id.encode('utf-8'), value=dlq_record)
+                            dlq_producer.flush()
+                            logger.info(f"Event '{event_id}' successfully routed to DLQ.")
+                        except Exception as dlq_err:
+                            logger.critical(f"Failed to publish event '{event_id}' to DLQ: {dlq_err}")
+                    else:
+                        logger.critical(f"DLQ Producer is not connected. Event '{event_id}' was dropped!")
         except Exception as e:
             logger.warning(f"Kafka Consumer thread warning / disconnected: {e}")
 
@@ -169,6 +191,7 @@ def analyze():
     Increments `python_analysis_ops_total` Prometheus counter.
     """
     logger.info("Python application /analyze route triggered (POST).")
+    logger.info(f"Incoming headers in python-app: {dict(request.headers)}")
     req_data = request.get_json() or {}
     number = req_data.get("number", 0)
     calc_type = req_data.get("type", "unknown")

@@ -15,16 +15,16 @@
   <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
   <style>
     :root {
-      --bg: #eef2f6;
-      --bg-1: #e4e9f0;
-      --panel: rgba(255, 255, 255, 0.62);
-      --panel-solid: #ffffff;
-      --border: rgba(15, 23, 42, 0.08);
-      --border-strong: rgba(15, 23, 42, 0.16);
-      --text: #0f172a;
-      --text-dim: #5b6779;
-      --text-faint: #94a3b8;
-      --glass-shadow: 0 16px 40px 0 rgba(31, 38, 135, 0.08), inset 0 1px 0 0 rgba(255, 255, 255, 0.9);
+      --bg: #0f172a;
+      --bg-1: #1e293b;
+      --panel: #1e293b;
+      --panel-solid: #1e293b;
+      --border: rgba(255, 255, 255, 0.05);
+      --border-strong: rgba(255, 255, 255, 0.1);
+      --text: #f8fafc;
+      --text-dim: #94a3b8;
+      --text-faint: #64748b;
+      --glass-shadow: 9px 9px 18px rgba(0, 0, 0, 0.45), -9px -9px 18px rgba(255, 255, 255, 0.04);
 
       --cyan: #0284c7;
       --violet: #7c3aed;
@@ -342,6 +342,16 @@
       box-shadow: var(--glass-shadow);
       transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
       animation: fadeInUp 0.6s cubic-bezier(0.16, 1, 0.3, 1) both;
+      --stagger-time: 0.08s;
+      animation-delay: calc(var(--sibling-index, 1) * var(--stagger-time));
+      animation-delay: calc(sibling-index() * var(--stagger-time));
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      .card {
+        animation: none !important;
+        transition: none !important;
+      }
     }
 
     .card::before {
@@ -376,10 +386,10 @@
     }
 
     .card:hover {
-      border-color: color-mix(in srgb, var(--card-accent, var(--cyan)) 45%, transparent);
-      background: rgba(255, 255, 255, 0.82);
-      transform: translateY(-3px);
-      box-shadow: 0 16px 36px -12px rgba(15, 23, 42, 0.14), inset 0 1px 0 0 rgba(255, 255, 255, 1);
+      border-color: rgba(255, 255, 255, 0.1);
+      background: var(--panel);
+      transform: translateY(-2px);
+      box-shadow: 12px 12px 24px rgba(0, 0, 0, 0.55), -12px -12px 24px rgba(255, 255, 255, 0.05);
     }
 
     .card-header {
@@ -454,22 +464,22 @@
     input,
     textarea {
       width: 100%;
-      background: rgba(255, 255, 255, 0.85);
-      border: 1px solid rgba(203, 213, 225, 0.9);
-      border-radius: 8px;
-      padding: 0.55rem 0.75rem;
+      background: #0f172a;
+      border: 1px solid rgba(255, 255, 255, 0.05);
+      border-radius: 10px;
+      padding: 0.65rem 0.85rem;
       color: var(--text);
       font-family: var(--font-mono);
       font-size: 0.82rem;
       outline: none;
-      box-shadow: inset 0 1px 2px rgba(15, 23, 42, 0.03);
-      transition: all 0.2s ease;
+      box-shadow: inset 4px 4px 8px rgba(0, 0, 0, 0.5), inset -4px -4px 8px rgba(255, 255, 255, 0.02);
+      transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
     }
 
     input:focus,
     textarea:focus {
-      border-color: var(--card-accent, var(--cyan));
-      box-shadow: 0 0 0 3px color-mix(in srgb, var(--card-accent, var(--cyan)) 18%, transparent);
+      border-color: rgba(255, 255, 255, 0.15);
+      box-shadow: inset 3px 3px 6px rgba(0, 0, 0, 0.4), inset -3px -3px 6px rgba(255, 255, 255, 0.02), 0 0 0 3px color-mix(in srgb, var(--card-accent, var(--cyan)) 15%, transparent);
     }
 
     .chip-group {
@@ -501,28 +511,34 @@
     /* ============ BUTTONS ============ */
     .btn {
       width: 100%;
-      background: color-mix(in srgb, var(--card-accent, var(--cyan)) 12%, transparent);
-      border: 1px solid color-mix(in srgb, var(--card-accent, var(--cyan)) 40%, transparent);
+      background: var(--panel);
+      border: 1px solid rgba(255, 255, 255, 0.08);
       color: var(--text);
       font-family: var(--font-body);
       font-weight: 600;
-      padding: 0.65rem;
-      border-radius: 9px;
+      padding: 0.7rem;
+      border-radius: 10px;
       cursor: pointer;
       font-size: 0.82rem;
-      transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+      transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
       display: flex;
       align-items: center;
       justify-content: center;
       gap: 0.5rem;
+      box-shadow: 4px 4px 8px rgba(0, 0, 0, 0.4), -4px -4px 8px rgba(255, 255, 255, 0.04);
     }
 
     .btn:hover {
       background: var(--card-accent, var(--cyan));
       color: #ffffff;
       border-color: var(--card-accent, var(--cyan));
-      box-shadow: 0 8px 22px -6px color-mix(in srgb, var(--card-accent, var(--cyan)) 60%, transparent);
+      box-shadow: 0 4px 12px -3px color-mix(in srgb, var(--card-accent, var(--cyan)) 65%, transparent);
       transform: translateY(-1px);
+    }
+
+    .btn:active {
+      box-shadow: inset 3px 3px 6px rgba(0, 0, 0, 0.6), inset -3px -3px 6px rgba(255, 255, 255, 0.02);
+      transform: translateY(0);
     }
 
     .btn-danger {
@@ -662,11 +678,26 @@
       word-break: break-all;
     }
 
-    .json-key { color: var(--console-key); }
+     .json-key { color: var(--console-key); }
     .json-str { color: var(--console-str); }
     .json-num { color: var(--console-num); }
     .json-bool { color: var(--console-bool); }
     .json-null { color: var(--console-null); }
+
+    pre span {
+      display: inline-block;
+      opacity: 1;
+      transform: translateY(0);
+      transition: opacity 0.35s ease-out, transform 0.35s ease-out;
+      transition-behavior: allow-discrete;
+    }
+
+    @starting-style {
+      pre span {
+        opacity: 0;
+        transform: translateY(8px);
+      }
+    }
 
     .cursor-blink {
       display: inline-block;
@@ -1013,6 +1044,20 @@
   </div>
 
   <script>
+    // Intercept all outgoing fetch calls to automatically inject X-API-Key header
+    const originalFetch = window.fetch;
+    window.fetch = function(url, options = {}) {
+      if (!options.headers) {
+        options.headers = {};
+      }
+      if (options.headers instanceof Headers) {
+        options.headers.set('X-API-Key', 'lgtm-secret-key');
+      } else {
+        options.headers['X-API-Key'] = 'lgtm-secret-key';
+      }
+      return originalFetch(url, options);
+    };
+
     // ============================================================================
     // THREE.JS INTERACTIVE 3D TOPOLOGY DIAGRAM
     // ============================================================================
@@ -1325,6 +1370,13 @@
       });
     }
 
+    const API_KEY = 'lgtm-secret-key';
+    function authFetch(url, options = {}) {
+      options.headers = options.headers || {};
+      options.headers['x-api-key'] = API_KEY;
+      return fetch(url, options);
+    }
+
     async function executeApiCall(btnId, actionName, fetchFn, path3D, colorHex) {
       const btn = document.getElementById(btnId);
       const spinner = btn.querySelector('.spinner');
@@ -1373,17 +1425,17 @@
 
     document.getElementById('btn-fib').addEventListener('click', () => {
       const n = document.getElementById('fib-num').value;
-      executeApiCall('btn-fib', 'Fibonacci', () => fetch(`/calculate/${n}`), [0, 2, 4], 0x22d3ee);
+      executeApiCall('btn-fib', 'Fibonacci', () => authFetch(`/calculate/${n}`), [0, 2, 4], 0x22d3ee);
     });
 
     document.getElementById('btn-factorial').addEventListener('click', () => {
       const n = document.getElementById('factorial-num').value;
-      executeApiCall('btn-factorial', 'Factorial Computation', () => fetch(`/math/factorial/${n}`), [0, 2, 4], 0xec4899);
+      executeApiCall('btn-factorial', 'Factorial Computation', () => authFetch(`/math/factorial/${n}`), [0, 2, 4], 0xec4899);
     });
 
     document.getElementById('btn-text').addEventListener('click', () => {
       const text = document.getElementById('text-input').value;
-      executeApiCall('btn-text', 'Text Sentiment', () => fetch('/text/analyze', {
+      executeApiCall('btn-text', 'Text Sentiment', () => authFetch('/text/analyze', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ text })
@@ -1392,13 +1444,13 @@
 
     document.getElementById('btn-prime').addEventListener('click', () => {
       const n = document.getElementById('prime-num').value;
-      executeApiCall('btn-prime', 'Prime Factors', () => fetch(`/math/prime-factors/${n}`), [2, 4], 0xa78bfa);
+      executeApiCall('btn-prime', 'Prime Factors', () => authFetch(`/math/prime-factors/${n}`), [2, 4], 0xa78bfa);
     });
 
     document.getElementById('btn-aggregate').addEventListener('click', () => {
       const raw = document.getElementById('array-input').value;
       const values = raw.split(',').map(x => parseFloat(x.trim())).filter(x => !isNaN(x));
-      executeApiCall('btn-aggregate', 'Data Aggregation', () => fetch('/data/aggregate', {
+      executeApiCall('btn-aggregate', 'Data Aggregation', () => authFetch('/data/aggregate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ values })
@@ -1407,21 +1459,27 @@
 
     document.getElementById('btn-user').addEventListener('click', () => {
       const id = document.getElementById('user-id').value;
-      executeApiCall('btn-user', 'User Directory', () => fetch(`/user/${id}`), [0, 2, 3, 4], 0x38bdf8);
+      executeApiCall('btn-user', 'User Directory', () => authFetch(`/user/${id}`), [0, 2, 3, 4], 0x38bdf8);
     });
 
     document.getElementById('btn-error').addEventListener('click', () => {
-      executeApiCall('btn-error', 'Fault Injection', () => fetch('/error'), [0, 2, 3, 4], 0xfb7185);
+      executeApiCall('btn-error', 'Fault Injection', () => authFetch('/error'), [0, 2, 3, 4], 0xfb7185);
     });
 
     document.getElementById('btn-kafka').addEventListener('click', () => {
       const message = document.getElementById('kafka-msg').value;
-      executeApiCall('btn-kafka', 'Publish Kafka Event', () => fetch('/kafka/publish', {
+      executeApiCall('btn-kafka', 'Publish Kafka Event', () => authFetch('/kafka/publish', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ message, topic: 'task-events' })
       }), [0, 1, 2, 3, 4], 0xf59e0b);
     });
+
+    // Set --sibling-index custom property for older/Firefox browsers (stagger fallback)
+    if (!CSS.supports('animation-delay: calc(sibling-index() * 0.1s)')) {
+      const cards = document.querySelectorAll('.dashboard-grid .card');
+      cards.forEach((el, index) => el.style.setProperty('--sibling-index', index + 1));
+    }
   </script>
 </body>
 

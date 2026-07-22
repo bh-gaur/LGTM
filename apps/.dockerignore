@@ -1,0 +1,5 @@
+**/node_modules/
+**/venv/
+**/.venv/
+**/.git/
+**/.DS_Store

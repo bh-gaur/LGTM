@@ -7,7 +7,7 @@ COPY node-app ./node-app
 
 WORKDIR /app/node-app
 
-RUN npm install && ln -s /app/node-app/node_modules /app/node_modules
+RUN npm install --legacy-peer-deps && ln -s /app/node-app/node_modules /app/node_modules
 
 ENV NODE_PATH=/app/node-app/node_modules
 

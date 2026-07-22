@@ -18,3 +18,12 @@ postgres_data
 .vscode
 helm
 test-telemetry
+
+# Infrastructure / IaC Files
+.terraform
+.terragrunt-cache
+*.tfstate
+*.tfvars
+terraform
+infrastructure/terraform
+infrastructure/terragrunt

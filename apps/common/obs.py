@@ -1,6 +1,5 @@
 import os
 import logging
-from flask import Flask
 
 # Global Feature Flag to Toggle Observability
 enable_obs_env = os.getenv("ENABLE_OBSERVABILITY", "true").lower()
@@ -24,7 +23,6 @@ if is_obs_enabled:
     from opentelemetry.sdk.metrics.export import PeriodicExportingMetricReader
     from opentelemetry.exporter.otlp.proto.http.metric_exporter import OTLPMetricExporter
     from opentelemetry.sdk.metrics._internal.exemplar import TraceBasedExemplarFilter
-    from opentelemetry.instrumentation.flask import FlaskInstrumentor
     from opentelemetry.trace.propagation.tracecontext import TraceContextTextMapPropagator
     from opentelemetry.propagate import set_global_textmap
 
@@ -84,18 +82,21 @@ if is_obs_enabled:
         description="Total number of data items processed in Python"
     )
 
-    from opentelemetry.instrumentation.flask import FlaskInstrumentor
-    from opentelemetry.instrumentation.psycopg2 import Psycopg2Instrumentor
-    from opentelemetry.instrumentation.kafka import KafkaInstrumentor
-
-    def setup_observability(app: Flask):
-        """Instruments Flask app, Psycopg2 database, and Kafka messaging with OpenTelemetry."""
-        FlaskInstrumentor().instrument_app(app)
+    def setup_observability(app):
+        """Instruments Flask or FastAPI app, Psycopg2 database, and Kafka messaging with OpenTelemetry."""
+        if app.__class__.__name__ == "FastAPI":
+            from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
+            FastAPIInstrumentor().instrument_app(app)
+        else:
+            from opentelemetry.instrumentation.flask import FlaskInstrumentor
+            FlaskInstrumentor().instrument_app(app)
         try:
+            from opentelemetry.instrumentation.psycopg2 import Psycopg2Instrumentor
             Psycopg2Instrumentor().instrument()
         except Exception as e:
             logger.warning(f"Psycopg2Instrumentor warning: {e}")
         try:
+            from opentelemetry.instrumentation.kafka import KafkaInstrumentor
             KafkaInstrumentor().instrument()
         except Exception as e:
             logger.warning(f"KafkaInstrumentor warning: {e}")

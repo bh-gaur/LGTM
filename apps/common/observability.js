@@ -35,7 +35,7 @@ if (isObservabilityEnabled) {
   });
   logs.setGlobalLoggerProvider(loggerProvider);
 
-  const { KafkaJsInstrumentor } = require('@opentelemetry/instrumentation-kafkajs');
+  const { KafkaJsInstrumentation } = require('@opentelemetry/instrumentation-kafkajs');
 
   // 2. Initialize OpenTelemetry NodeSDK
   const sdk = new NodeSDK({
@@ -57,7 +57,7 @@ if (isObservabilityEnabled) {
           disableLogSending: true,
         },
       }),
-      new KafkaJsInstrumentor(),
+      new KafkaJsInstrumentation(),
     ],
   });
 
@@ -184,6 +184,18 @@ class OTelLogTransport extends Transport {
   }
 }
 
+const winstonFormatWithTrace = winston.format((info) => {
+  const span = api.trace.getActiveSpan();
+  if (span) {
+    const spanContext = span.spanContext();
+    if (spanContext && api.trace.isSpanContextValid(spanContext)) {
+      info.trace_id = spanContext.traceId;
+      info.span_id = spanContext.spanId;
+    }
+  }
+  return info;
+});
+
 const transports = [new winston.transports.Console()];
 if (isObservabilityEnabled) {
   transports.push(new OTelLogTransport({ url: process.env.OTEL_EXPORTER_OTLP_LOGS_ENDPOINT || 'http://alloy:4318/v1/logs' }));
@@ -191,7 +203,10 @@ if (isObservabilityEnabled) {
 
 const logger = winston.createLogger({
   level: 'info',
-  format: winston.format.json(),
+  format: winston.format.combine(
+    winstonFormatWithTrace(),
+    winston.format.json()
+  ),
   transports
 });
 

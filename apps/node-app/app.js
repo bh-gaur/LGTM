@@ -1,5 +1,3 @@
-const path = require('path');
-const express = require('express');
 const {
   api,
   client,
@@ -11,6 +9,9 @@ const {
   getActiveExemplar
 } = require('../common/observability');
 
+const path = require('path');
+const express = require('express');
+
 const { swaggerDocument, swaggerUiHtml } = require('./swagger');
 
 const app = express();
@@ -19,7 +20,53 @@ app.use(express.json());
 // Serve static web frontend UI from public/ directory
 app.use(express.static(path.join(__dirname, 'public')));
 
+// ============================================================================
+// REDIS CACHE INITIALIZATION
+// ============================================================================
+const { createClient } = require('redis');
+const REDIS_HOST = process.env.REDIS_HOST || 'localhost';
+const redisClient = createClient({ url: `redis://${REDIS_HOST}:6379` });
+
+redisClient.on('error', (err) => {
+  logger.warn(`Redis Client Error: ${err.message}`);
+});
+
+let isRedisConnected = false;
+async function initRedis() {
+  try {
+    await redisClient.connect();
+    logger.info(`Successfully connected to Redis cache at redis://${REDIS_HOST}:6379`);
+    isRedisConnected = true;
+  } catch (err) {
+    logger.warn(`Redis Cache unavailable, proceeding with No-Op cache fallbacks: ${err.message}`);
+  }
+}
+initRedis();
+
+// ============================================================================
+// API KEY AUTHENTICATION MIDDLEWARE
+// ============================================================================
+const VALID_API_KEY = process.env.API_KEY || 'lgtm-secret-key';
+
+function apiKeyAuth(req, res, next) {
+  // Exclude UI, Swagger docs, metrics and health checks from authentication
+  if (req.path === '/ui' || req.path === '/' || req.path.startsWith('/swagger') || req.path.startsWith('/docs') || req.path === '/metrics') {
+    return next();
+  }
+  const rawApiKey = req.headers['x-api-key'] || req.query.api_key;
+  // Support comma-separated duplicates gracefully (e.g. from load balancers or gateways)
+  const apiKey = typeof rawApiKey === 'string' ? rawApiKey.split(',')[0].trim() : undefined;
+
+  if (!apiKey || apiKey !== VALID_API_KEY) {
+    logger.warn(`Unauthorized access attempt to: ${req.path}`);
+    return res.status(401).json({ error: 'Unauthorized: Invalid or missing X-API-Key header.' });
+  }
+  next();
+}
+app.use(apiKeyAuth);
+
 const KAFKA_BROKERS = (process.env.KAFKA_BROKERS || 'kafka:9092').split(',');
+const PYTHON_SERVICE_URL = process.env.PYTHON_SERVICE_URL || 'http://python-app:5000';
 
 let kafkaProducer = null;
 
@@ -35,7 +82,7 @@ async function initKafkaProducer() {
     await kafkaProducer.connect();
     logger.info(`Successfully connected Kafka Producer to brokers: ${KAFKA_BROKERS.join(',')}`);
   } catch (err) {
-    logger.warning(`Kafka Producer connection warning: ${err.message}`);
+    logger.warn(`Kafka Producer connection warning: ${err.message}`);
   }
 }
 initKafkaProducer();
@@ -53,7 +100,6 @@ const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
  */
 async function fetchJson(url, options = {}) {
   const headers = options.headers ? { ...options.headers } : {};
-  api.propagation.inject(api.context.active(), headers);
 
   const fetchOptions = {
     keepalive: true,
@@ -79,6 +125,7 @@ async function fetchJson(url, options = {}) {
  * 1. Root / UI Dashboard Route
  */
 app.get('/ui', (req, res) => {
+  res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, private');
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
@@ -88,8 +135,25 @@ app.get('/ui', (req, res) => {
  * - Forwards calculation result to Python service for downstream analysis
  */
 app.get('/calculate/:num', async (req, res) => {
-  const num = parseInt(req.params.num, 10) || 10;
+  const num = parseInt(req.params.num, 10);
+  if (isNaN(num) || num < 0 || num > 1000) {
+    logger.warn(`Invalid Fibonacci N value requested: ${req.params.num}`);
+    return res.status(400).json({ error: 'Parameter num must be a valid non-negative integer between 0 and 1000' });
+  }
   logger.info(`Node.js processing Fibonacci calculation for N=${num}`);
+
+  const cacheKey = `fib:${num}`;
+  if (isRedisConnected) {
+    try {
+      const cachedVal = await redisClient.get(cacheKey);
+      if (cachedVal) {
+        logger.info(`Redis cache hit for Fibonacci N=${num}`);
+        return res.json(JSON.parse(cachedVal));
+      }
+    } catch (cacheErr) {
+      logger.warn(`Redis read error: ${cacheErr.message}`);
+    }
+  }
 
   calculationCounter.inc({
     labels: { number: num.toString() },
@@ -102,8 +166,23 @@ app.get('/calculate/:num', async (req, res) => {
 
   await tracer.startActiveSpan('CalculateFibonacci', async (span) => {
     try {
+      // 1. Verify token with auth-service downstream
+      const { status: authStatus, data: authData } = await fetchJson('http://auth-service:8082/verify', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ token: 'lgtm-secret-token' })
+      });
+
+      if (authStatus !== 200 || !authData.verified) {
+        logger.warn('Auth-service verification failed.');
+        span.setStatus({ code: api.SpanStatusCode.ERROR, message: 'Authentication verification failed' });
+        return res.status(401).json({ error: 'Auth-service verification failed' });
+      }
+
       let a = 0, b = 1;
-      for (let i = 0; i < num; i++) {
+      let sum = 0;
+      for (let i = 0; i <= num; i++) {
+        sum += a;
         const temp = a + b;
         a = b;
         b = temp;
@@ -111,27 +190,40 @@ app.get('/calculate/:num', async (req, res) => {
 
       span.setAttribute('calculation.type', 'fibonacci');
       span.setAttribute('calculation.input', num);
-      span.setAttribute('calculation.result', a);
+      span.setAttribute('calculation.result', sum);
 
-      logger.info(`Fibonacci calculation completed. Result=${a}. Calling Python app downstream...`);
+      logger.info(`Fibonacci calculation completed. Sum of series up to N=${num} is ${sum}. Calling Python app downstream...`);
 
       const { data: analysisData } = await fetchJson(`${PYTHON_SERVICE_URL}/analyze`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ number: a, type: 'fibonacci' })
+        body: JSON.stringify({ number: sum, type: 'fibonacci' })
       });
 
       logger.info('Python analysis completed', { response: analysisData });
 
-      res.json({
+      const responsePayload = {
         service: 'node-app',
-        result: a,
-        analysis: analysisData
-      });
+        result: sum,
+        analysis: analysisData,
+        cache: 'miss'
+      };
+
+      if (isRedisConnected) {
+        try {
+          await redisClient.set(cacheKey, JSON.stringify({ ...responsePayload, cache: 'hit' }), {
+            EX: 300
+          });
+        } catch (cacheWriteErr) {
+          logger.warn(`Redis write error: ${cacheWriteErr.message}`);
+        }
+      }
+
+      res.json(responsePayload);
     } catch (err) {
       span.recordException(err);
       span.setStatus({ code: api.SpanStatusCode.ERROR, message: err.message });
-      logger.error('Failed during calculation or downstream call', { error: err.message });
+      logger.error('Failed during calculation or downstream call', { error: err.stack || err.message });
       res.status(500).json({ error: err.message });
     } finally {
       span.end();
@@ -167,10 +259,33 @@ app.get('/math/factorial/:n', async (req, res) => {
     logger.warn(`Invalid factorial N value: ${req.params.n}`);
     return res.status(400).json({ error: 'Parameter N must be a valid positive integer' });
   }
+
+  const cacheKey = `fact:${n}`;
+  if (isRedisConnected) {
+    try {
+      const cachedVal = await redisClient.get(cacheKey);
+      if (cachedVal) {
+        logger.info(`Redis cache hit for Factorial N=${n}`);
+        return res.json(JSON.parse(cachedVal));
+      }
+    } catch (cacheErr) {
+      logger.warn(`Redis read error: ${cacheErr.message}`);
+    }
+  }
+
   logger.info(`Proxying factorial request for N=${n} to Python backend`);
   try {
     const { status, data } = await fetchJson(`${PYTHON_SERVICE_URL}/math/factorial/${n}`);
-    res.status(status).json(data);
+    if (status === 200 && isRedisConnected) {
+      try {
+        await redisClient.set(cacheKey, JSON.stringify({ ...data, cache: 'hit' }), {
+          EX: 300
+        });
+      } catch (cacheWriteErr) {
+        logger.warn(`Redis write error: ${cacheWriteErr.message}`);
+      }
+    }
+    res.status(status).json({ ...data, cache: 'miss' });
   } catch (err) {
     logger.error('Failed to proxy factorial request', { error: err.message });
     res.status(500).json({ error: 'Failed to contact Python backend' });
@@ -337,6 +452,20 @@ app.get('/user/:id', async (req, res) => {
     logger.warn(`Invalid user ID query parameter value: ${req.params.id}`);
     return res.status(400).json({ error: 'User ID must be a valid integer' });
   }
+
+  const cacheKey = `user:${userId}`;
+  if (isRedisConnected) {
+    try {
+      const cachedVal = await redisClient.get(cacheKey);
+      if (cachedVal) {
+        logger.info(`Redis cache hit for user ID=${userId}`);
+        return res.json(JSON.parse(cachedVal));
+      }
+    } catch (cacheErr) {
+      logger.warn(`Redis read error: ${cacheErr.message}`);
+    }
+  }
+
   logger.info(`Fetching user details for ID=${userId}`);
 
   try {
@@ -346,7 +475,17 @@ app.get('/user/:id', async (req, res) => {
       return res.status(404).json(data);
     }
     logger.info(`User details fetched successfully for ID=${userId}`);
-    res.json(data);
+    
+    if (status === 200 && isRedisConnected) {
+      try {
+        await redisClient.set(cacheKey, JSON.stringify({ ...data, cache: 'hit' }), {
+          EX: 300
+        });
+      } catch (cacheWriteErr) {
+        logger.warn(`Redis write error: ${cacheWriteErr.message}`);
+      }
+    }
+    res.json({ ...data, cache: 'miss' });
   } catch (err) {
     logger.error('Database connection simulated failure', { error: err.message });
     res.status(500).json({ error: 'Database service unavailable' });
@@ -402,6 +541,64 @@ app.post('/kafka/publish', async (req, res) => {
 });
 
 /**
+ * 9c. Go Prime Factorization Proxy Route -> Go Gin Service
+ */
+app.get('/calculate/primes/:num', async (req, res) => {
+  const num = parseInt(req.params.num, 10);
+  if (isNaN(num) || num <= 1) {
+    return res.status(400).json({ error: 'Parameter num must be a positive integer greater than 1' });
+  }
+
+  const tracer = api.trace.getTracer('node-app-tracer');
+  await tracer.startActiveSpan('ProxyPrimeFactorization', async (span) => {
+    span.setAttribute('calculation.type', 'prime_factors');
+    span.setAttribute('calculation.input', num);
+
+    try {
+      // 1. Verify token with auth-service downstream
+      const { status: authStatus, data: authData } = await fetchJson('http://auth-service:8082/verify', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ token: 'lgtm-secret-token' })
+      });
+
+      if (authStatus !== 200 || !authData.verified) {
+        logger.warn('Auth-service verification failed.');
+        span.setStatus({ code: api.SpanStatusCode.ERROR, message: 'Authentication verification failed' });
+        return res.status(401).json({ error: 'Auth-service verification failed' });
+      }
+
+      logger.info(`Proxying prime factorization request for N=${num} to Go backend`);
+      const { status, data } = await fetchJson(`http://go-app:8083/math/primes/${num}`);
+      
+      span.setAttribute('calculation.result', JSON.stringify(data.factors || []));
+      res.status(status).json(data);
+    } catch (err) {
+      span.recordException(err);
+      span.setStatus({ code: api.SpanStatusCode.ERROR, message: err.message });
+      logger.error('Failed to proxy prime factorization request to Go', { error: err.message });
+      res.status(500).json({ error: 'Failed to contact Go backend' });
+    } finally {
+      span.end();
+    }
+  });
+});
+
+/**
+ * 9d. Analytics Statistics Aggregator Route -> Python FastAPI
+ */
+app.get('/system/summary', async (req, res) => {
+  logger.info('System summary statistics requested from analytics-service');
+  try {
+    const { status, data } = await fetchJson('http://analytics-service:8086/metrics/summary');
+    res.status(status).json(data);
+  } catch (err) {
+    logger.error('Failed to fetch system summary statistics', { error: err.message });
+    res.status(500).json({ error: 'Failed to contact Analytics backend' });
+  }
+});
+
+/**
  * 10. Intentional Error Route
  */
 app.get('/error', (req, res) => {
@@ -449,9 +646,7 @@ app.get('/metrics', async (req, res) => {
   }
 });
 
-// ============================================================================
-// SERVER INITIALIZATION
-// ============================================================================
+const PORT = process.env.PORT || 8081;
 
 app.listen(PORT, () => {
   logger.info(`Node.js app listening on port ${PORT}`);

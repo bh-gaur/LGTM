@@ -15,14 +15,14 @@ blocks_storage:
     dir: /tmp/mimir/blocks
 
 ruler_storage:
-  backend: local
-  local:
-    directory: /tmp/mimir/rules
+  backend: filesystem
+  filesystem:
+    dir: /tmp/mimir/rules
 
 alertmanager_storage:
-  backend: local
-  local:
-    path: /tmp/mimir/alertmanager
+  backend: filesystem
+  filesystem:
+    dir: /tmp/mimir/alertmanager
 
 limits:
   max_label_names_per_series: 30

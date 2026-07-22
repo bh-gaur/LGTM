@@ -38,6 +38,8 @@ spec:
               value: "http://python-app:{{ .Values.pythonApp.service.port }}"
             - name: KAFKA_BROKERS
               value: "kafka:{{ .Values.kafka.service.port | default 9092 }}"
+            - name: REDIS_HOST
+              value: "redis"
             - name: OTEL_SERVICE_NAME
               value: "node-app"
             - name: OTEL_METRICS_EXEMPLAR_FILTER

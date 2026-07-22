@@ -63,6 +63,26 @@ prometheus.remote_write "mimir" {
 
 // Logs to Loki
 otelcol.exporter.loki "loki_out" {
+  forward_to = [loki.process.log_parsing.receiver]
+}
+
+loki.process "log_parsing" {
+  stage.json {
+    expressions = {
+      level       = "level",
+      latency_ms  = "latency_ms",
+      http_status = "http_status",
+    }
+  }
+
+  stage.labels {
+    values = {
+      level       = "level",
+      latency_ms  = "latency_ms",
+      http_status = "http_status",
+    }
+  }
+
   forward_to = [loki.write.loki_endpoint.receiver]
 }
 
@@ -89,5 +109,11 @@ prometheus.scrape "alloy" {
 // 5. Scrape Node.js application metrics (supports OpenMetrics exemplars)
 prometheus.scrape "node_app" {
   targets = [{"__address__" = env("NODE_APP_SCRAPE_TARGET")}]
+  forward_to = [prometheus.remote_write.mimir.receiver]
+}
+
+// 6. Scrape Auth Service metrics
+prometheus.scrape "auth_service" {
+  targets = [{"__address__" = "auth-service:8082"}]
   forward_to = [prometheus.remote_write.mimir.receiver]
 }

@@ -1,7 +1,7 @@
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: grafana-datasources
+  name: grafana-provisioning
   labels:
     {{- include "lgtm-stack.labels" . | nindent 4 }}
 data:
@@ -58,6 +58,36 @@ data:
                 value: 'job'
             filterByTraceID: true
             filterBySpanID: false
+  alerting.yaml: |
+    apiVersion: 1
+    groups:
+      - orgId: 1
+        name: "LGTM Alerts"
+        folder: "System Alerts"
+        interval: 10s
+        rules:
+          - uid: "api_high_error_rate"
+            title: "High API Error Rate Alerts"
+            condition: A
+            data:
+              - refId: A
+                relativeTimeRange:
+                  from: 300
+                  to: 0
+                datasourceUid: prometheus
+                model:
+                  expr: sum(rate(calculation_requests_total[1m])) > 0.1
+                  intervalMs: 10000
+                  maxDataPoints: 100
+                  refId: A
+            noDataState: OK
+            execErrState: Alerting
+            for: 15s
+            annotations:
+              summary: "Node.js Gateway experiences high API traffic error spikes."
+              description: "Calculation requests error rate exceeds threshold of 10% over the last minute."
+            labels:
+              severity: critical
 ---
 apiVersion: v1
 kind: Service
@@ -109,8 +139,10 @@ spec:
             - name: GF_AUTH_ANONYMOUS_ENABLED
               value: "false"
           volumeMounts:
-            - name: provisioning
+            - name: provisioning-datasources
               mountPath: /etc/grafana/provisioning/datasources
+            - name: provisioning-alerting
+              mountPath: /etc/grafana/provisioning/alerting
           livenessProbe:
             httpGet:
               path: /api/health
@@ -124,6 +156,15 @@ spec:
             initialDelaySeconds: 15
             periodSeconds: 10
       volumes:
-        - name: provisioning
+        - name: provisioning-datasources
           configMap:
-            name: grafana-datasources
+            name: grafana-provisioning
+            items:
+              - key: datasources.yaml
+                path: datasources.yaml
+        - name: provisioning-alerting
+          configMap:
+            name: grafana-provisioning
+            items:
+              - key: alerting.yaml
+                path: alerting.yaml
