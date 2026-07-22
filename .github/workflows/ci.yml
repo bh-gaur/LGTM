@@ -21,7 +21,7 @@ jobs:
 
       - name: Lint Helm Charts
         run: |
-          helm lint helm/lgtm-stack
+          helm lint infrastructure/helm/lgtm-stack
 
   node-validation:
     name: Node.js Lint & Syntax
@@ -35,14 +35,41 @@ jobs:
         with:
           node-version: '20'
 
-      - name: Install Dependencies
+      - name: Validate Gateway Syntax Check
         run: |
           cd apps/node-app
-          npm install
+          npm install --legacy-peer-deps
+          node --check app.js
 
-      - name: Validate Syntax Check
+      - name: Validate Auth Service Syntax Check
         run: |
-          node --check apps/node-app/app.js
+          cd apps/auth-service
+          npm install --legacy-peer-deps
+          node --check app.js
+
+  go-validation:
+    name: Go Build & Validate
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Codebase
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.21'
+
+      - name: Build Go App
+        run: |
+          cd apps/go-app
+          go mod tidy
+          go build -o go-app .
+
+      - name: Build DB Sync Service
+        run: |
+          cd apps/db-sync-service
+          go mod tidy
+          go build -o db-sync-service .
 
   python-validation:
     name: Python Lint & Syntax
@@ -63,4 +90,4 @@ jobs:
 
       - name: Check flake8 Python Code Style
         run: |
-          flake8 apps/python-app/app.py --count --select=E9,F63,F7,F82 --show-source --statistics
+          flake8 apps/python-app/app.py apps/notification-service/app.py apps/analytics-service/app.py --count --select=E9,F63,F7,F82 --show-source --statistics
