@@ -14,19 +14,31 @@ graph TD
     %% Gateway and Application Microservices
     subgraph Microservice Mesh
         NodeApp -->|Check Cache| Redis[(Redis Cache :6379)]
-        NodeApp -->|Sync REST Proxy| PyApp[Python Analytics Engine :5000]
-        NodeApp -->|Async Publish event| Kafka[Apache Kafka KRaft :9092]
-        Kafka -->|Consume event background thread| PyApp
-        PyApp -->|SQL Query / Audit Log| Postgres[(PostgreSQL DB :5432)]
-        PyApp -.->|Alembic Migrations| Postgres
+        NodeApp -->|JWT Verify| AuthService[auth-service :8082]
+        NodeApp -->|Prime Factors Proxy| GoApp[go-app :8083]
+        NodeApp -->|System Stats Proxy| Analytics[analytics-service :8086]
+        NodeApp -->|Async Publish event| Kafka[Apache Kafka :9092]
+        
+        GoApp -->|Downstream Analyze| PyApp[Python App :5000]
+        Kafka -->|Consume task-events| NotifService[notification-service :8084]
+        
+        PyApp -->|SQL Query| Postgres[(PostgreSQL DB :5432)]
+        Analytics -->|SQL Query stats| Postgres
+        DbSync[db-sync-service :8085] -->|Background DB Audit| Postgres
     end
 
     %% Telemetry Collection Layer
     subgraph Grafana Telemetry Agent
         Alloy[Grafana Alloy :12345]
-        NodeApp -->|OTLP HTTP Traces/Logs| Alloy
-        PyApp -->|OTLP HTTP Traces/Logs| Alloy
-        NodeApp -->|Scrape Prometheus metrics| Alloy
+        NodeApp -->|OTLP Traces/Logs| Alloy
+        AuthService -->|OTLP Traces/Logs| Alloy
+        GoApp -->|OTLP Traces/Logs| Alloy
+        PyApp -->|OTLP Traces/Logs| Alloy
+        NotifService -->|OTLP Traces/Logs| Alloy
+        Analytics -->|OTLP Traces/Logs| Alloy
+        
+        NodeApp -->|Scrape metrics| Alloy
+        AuthService -->|Scrape metrics| Alloy
     end
 
     %% Storage Backends
@@ -48,9 +60,14 @@ graph TD
 
     %% Color Styling
     style NodeApp fill:#5b9dfa,stroke:#3b82f6,stroke-width:2px,color:#fff
-    style Redis fill:#ef4444,stroke:#dc2626,stroke-width:2px,color:#fff
-    style Kafka fill:#f59e0b,stroke:#d97706,stroke-width:2px,color:#fff
+    style AuthService fill:#3b82f6,stroke:#1d4ed8,stroke-width:2px,color:#fff
+    style GoApp fill:#10b981,stroke:#047857,stroke-width:2px,color:#fff
     style PyApp fill:#34d399,stroke:#10b981,stroke-width:2px,color:#fff
+    style NotifService fill:#f59e0b,stroke:#d97706,stroke-width:2px,color:#fff
+    style Analytics fill:#84cc16,stroke:#4d7c0f,stroke-width:2px,color:#fff
+    style DbSync fill:#06b6d4,stroke:#0891b2,stroke-width:2px,color:#fff
+    style Redis fill:#ef4444,stroke:#dc2626,stroke-width:2px,color:#fff
+    style Kafka fill:#f97316,stroke:#ea580c,stroke-width:2px,color:#fff
     style Postgres fill:#38bdf8,stroke:#0ea5e9,stroke-width:2px,color:#fff
     style Alloy fill:#a78bfa,stroke:#8b5cf6,stroke-width:2px,color:#fff
     style Mimir fill:#eab308,stroke:#ca8a04,stroke-width:2px,color:#fff
@@ -83,6 +100,11 @@ graph TD
 ### 1. Application Layer
 * **Node.js Gateway (`apps/node-app`)**: Express-based portal. Serves the Three.js 3D WebGL topology dashboard and proxies compute, search, and message actions downstream. Hardened with API key authentication middleware.
 * **Python Analytics (`apps/python-app`)**: Flask-based heavy numeric computation engine, running multi-threaded Gunicorn workers. Leverages Alembic migration scripts for database setups.
+* **`auth-service` (`apps/auth-service`)**: Node.js microservice validating API signatures and token payloads.
+* **`go-app` (`apps/go-app`)**: High-performance Go microservice calculating prime factorizations.
+* **`notification-service` (`apps/notification-service`)**: Python FastAPI message consumer capturing and processing Kafka stream events.
+* **`db-sync-service` (`apps/db-sync-service`)**: Go background agent auditing PG tables structures.
+* **`analytics-service` (`apps/analytics-service`)**: Python FastAPI database stats analytics service.
 * **Shared SDKs (`apps/common`)**: Shared OpenTelemetry hooks (`observability.js`, `obs.py`) loaded dynamically based on the global `ENABLE_OBSERVABILITY` flag.
 
 ### 2. Infrastructure Layer
@@ -114,4 +136,6 @@ W3C Header Format: traceparent: 00-[32-hex-trace-id]-[16-hex-parent-span-id]-[2-
 Example:           traceparent: 00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01
 ```
 
-Both microservices leverage global OpenTelemetry context textmap propagators (`W3CTraceContextPropagator`) to serialize and deserialize these headers across downstream calls, linking disparate processes into a single unified trace representation.
+All microservices leverage global OpenTelemetry context textmap propagators (`W3CTraceContextPropagator`) to serialize and deserialize these headers:
+1. **HTTP Proxying**: Headers are automatically injected by Node.js `undici`/`http` auto-instrumentations and extracted by Gin/FastAPI/Flask middlewares.
+2. **Kafka Messaging**: Node.js `kafkajs` auto-instrumentation injects trace parents into message headers during production. On the receiving end, the Python Kafka consumer manually extracts the context dictionary and passes it to `tracer.start_as_current_span(context=parent_context)`, linking publisher and subscriber spans into a single continuous trace representation.
