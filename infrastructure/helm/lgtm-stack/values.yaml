@@ -4,7 +4,7 @@ global:
   enableObservability: true
   # The StorageClass to use for persistent volumes (e.g. "gp3" on AWS EKS).
   # If empty or null, the Kubernetes cluster's default StorageClass is used.
-  storageClass: "local-path"
+  storageClass: "gp3"
 
 # Node.js Application configuration
 nodeApp:
@@ -27,6 +27,61 @@ pythonApp:
   service:
     type: "ClusterIP"
     port: 5000
+
+# Auth Service configuration
+authService:
+  replicaCount: 1
+  image:
+    repository: "lgtm-auth-service"
+    tag: "latest"
+    pullPolicy: "IfNotPresent"
+  service:
+    type: "ClusterIP"
+    port: 8082
+
+# Go prime factorization App configuration
+goApp:
+  replicaCount: 1
+  image:
+    repository: "lgtm-go-app"
+    tag: "latest"
+    pullPolicy: "IfNotPresent"
+  service:
+    type: "ClusterIP"
+    port: 8083
+
+# Python Notification Service configuration
+notificationService:
+  replicaCount: 1
+  image:
+    repository: "lgtm-notification-service"
+    tag: "latest"
+    pullPolicy: "IfNotPresent"
+  service:
+    type: "ClusterIP"
+    port: 8084
+
+# Go Database Sync Service configuration
+dbSyncService:
+  replicaCount: 1
+  image:
+    repository: "lgtm-db-sync-service"
+    tag: "latest"
+    pullPolicy: "IfNotPresent"
+  service:
+    type: "ClusterIP"
+    port: 8085
+
+# Python Analytics Service configuration
+analyticsService:
+  replicaCount: 1
+  image:
+    repository: "lgtm-analytics-service"
+    tag: "latest"
+    pullPolicy: "IfNotPresent"
+  service:
+    type: "ClusterIP"
+    port: 8086
 
 # PostgreSQL Database Infrastructure configuration
 postgres:
