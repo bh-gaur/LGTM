@@ -1,0 +1,85 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: analytics-service
+  labels:
+    app: analytics-service
+    {{- include "lgtm-stack.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.analyticsService.replicaCount }}
+  selector:
+    matchLabels:
+      app: analytics-service
+  template:
+    metadata:
+      labels:
+        app: analytics-service
+        {{- include "lgtm-stack.selectorLabels" . | nindent 8 }}
+    spec:
+      containers:
+        - name: analytics-service
+          image: "{{ .Values.analyticsService.image.repository }}{{ if not (contains ":" .Values.analyticsService.image.repository) }}:{{ .Values.analyticsService.image.tag }}{{ end }}"
+          imagePullPolicy: {{ .Values.analyticsService.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.analyticsService.service.port }}
+              protocol: TCP
+          env:
+            - name: PORT
+              value: "{{ .Values.analyticsService.service.port }}"
+            - name: ENABLE_OBSERVABILITY
+              value: "{{ .Values.global.enableObservability }}"
+            - name: POSTGRES_HOST
+              value: "postgres"
+            - name: POSTGRES_PORT
+              value: "5432"
+            - name: POSTGRES_DB
+              value: "{{ .Values.postgres.database }}"
+            - name: POSTGRES_USER
+              value: "{{ .Values.postgres.user }}"
+            - name: POSTGRES_PASSWORD
+              value: "{{ .Values.postgres.password }}"
+            - name: OTEL_SERVICE_NAME
+              value: "analytics-service"
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              value: "http://alloy:4318"
+            - name: OTEL_EXPORTER_OTLP_PROTOCOL
+              value: "http/protobuf"
+            - name: OTEL_TRACES_EXPORTER
+              value: "otlp"
+            - name: OTEL_METRICS_EXPORTER
+              value: "otlp"
+            - name: OTEL_LOGS_EXPORTER
+              value: "otlp"
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 15
+            periodSeconds: 15
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 15
+            periodSeconds: 15
+      imagePullSecrets:
+        - name: dockerhub-secret
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: analytics-service
+  labels:
+    app: analytics-service
+    {{- include "lgtm-stack.labels" . | nindent 4 }}
+spec:
+  type: {{ .Values.analyticsService.service.type }}
+  ports:
+    - port: {{ .Values.analyticsService.service.port }}
+      targetPort: http
+      protocol: TCP
+      name: http
+  selector:
+    app: analytics-service
+    {{- include "lgtm-stack.selectorLabels" . | nindent 4 }}

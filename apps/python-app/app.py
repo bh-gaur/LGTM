@@ -1,101 +1,179 @@
 import os
+import sys
 import time
-import logging
+import random
 from flask import Flask, jsonify, request
-
+import psycopg2
+from psycopg2 import pool
 from opentelemetry import trace, metrics
-from opentelemetry._logs import set_logger_provider
-from opentelemetry.exporter.otlp.proto.http._log_exporter import OTLPLogExporter
-from opentelemetry.sdk._logs import LoggerProvider, LoggingHandler
-from opentelemetry.sdk._logs.export import BatchLogRecordProcessor
-from opentelemetry.sdk.resources import Resource
 
-from opentelemetry.sdk.metrics import MeterProvider
-from opentelemetry.sdk.metrics.export import PeriodicExportingMetricReader
-from opentelemetry.exporter.otlp.proto.http.metric_exporter import OTLPMetricExporter
-from opentelemetry.instrumentation.flask import FlaskInstrumentor
+# Add parent directory to sys.path to resolve common.obs
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
-# Define shared resource attributes
-resource = Resource.create(attributes={"service.name": "python-app"})
-
-# 1. Configure manual OTel tracer provider
-from opentelemetry.sdk.trace import TracerProvider
-from opentelemetry.sdk.trace.export import BatchSpanProcessor
-from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
-
-trace_provider = TracerProvider(resource=resource)
-trace.set_tracer_provider(trace_provider)
-trace_exporter = OTLPSpanExporter(endpoint="http://alloy:4318/v1/traces")
-trace_provider.add_span_processor(BatchSpanProcessor(trace_exporter))
-
-# 2. Configure manual OTel logger provider for reliable log exporting to Loki via Alloy
-logger_provider = LoggerProvider(resource=resource)
-set_logger_provider(logger_provider)
-log_exporter = OTLPLogExporter(endpoint="http://alloy:4318/v1/logs")
-logger_provider.add_log_record_processor(BatchLogRecordProcessor(log_exporter))
-
-# Explicitly set root logger level to INFO
-logging.getLogger().setLevel(logging.INFO)
-
-# Attach OTel logging handler to root logger
-logging_handler = LoggingHandler(level=logging.INFO, logger_provider=logger_provider)
-logging.getLogger().addHandler(logging_handler)
-
-# Configure console logging manually (basicConfig does nothing if handlers are already present)
-console_handler = logging.StreamHandler()
-console_handler.setLevel(logging.INFO)
-console_formatter = logging.Formatter('%(levelname)s:%(name)s:%(message)s')
-console_handler.setFormatter(console_formatter)
-logging.getLogger().addHandler(console_handler)
-
-logger = logging.getLogger("python-app")
-
-# Note: We intentionally DO NOT call LoggingInstrumentor().instrument() here.
-# This prevents OpenTelemetry from writing duplicate/redundant 'trace_id' and 'span_id'
-# keys into the log attributes, keeping only the clean, standard OTLP envelope traceid.
-
-# 3. Configure manual OTel meter provider to force rapid 10s metric flushes with TraceBasedExemplarFilter
-from opentelemetry.sdk.metrics._internal.exemplar import TraceBasedExemplarFilter
-
-metric_reader = PeriodicExportingMetricReader(
-    OTLPMetricExporter(endpoint="http://alloy:4318/v1/metrics"),
-    export_interval_millis=10000
+from common.obs import (
+    logger,
+    analysis_counter,
+    task_duration_histogram,
+    processed_items_counter,
+    setup_observability
 )
-meter_provider = MeterProvider(
-    metric_readers=[metric_reader],
-    resource=resource,
-    exemplar_filter=TraceBasedExemplarFilter()
-)
-metrics.set_meter_provider(meter_provider)
+from swagger import SWAGGER_DOCUMENT, SWAGGER_UI_HTML
 
-meter = metrics.get_meter("python-app-meter")
-analysis_counter = meter.create_counter(
-    name="python_analysis_ops_total",
-    description="Total number of analysis operations executed in Python"
-)
-task_duration_histogram = meter.create_histogram(
-    name="python_task_duration_seconds",
-    description="Duration of python analysis tasks",
-    unit="s"
-)
-processed_items_counter = meter.create_counter(
-    name="python_processed_items_total",
-    description="Total number of data items processed in Python"
-)
+# Track application start time for uptime diagnostics
+PROCESS_START_TIME = time.time()
+
+# PostgreSQL Database Configuration
+POSTGRES_HOST = os.environ.get("POSTGRES_HOST", "postgres")
+POSTGRES_PORT = int(os.environ.get("POSTGRES_PORT", 5432))
+POSTGRES_DB = os.environ.get("POSTGRES_DB", "lgtmdb")
+POSTGRES_USER = os.environ.get("POSTGRES_USER", "lgtmuser")
+POSTGRES_PASSWORD = os.environ.get("POSTGRES_PASSWORD", "lgtmpass")
+
+db_pool = None
+
+def init_db():
+    """Runs database migrations via Alembic and initializes the thread-safe PostgreSQL pool."""
+    global db_pool
+    try:
+        from alembic.config import Config
+        from alembic import command
+        alembic_cfg = Config("alembic.ini")
+        command.upgrade(alembic_cfg, "head")
+        logger.info("Database migrations successfully executed via Alembic.")
+    except Exception as e:
+        logger.warning(f"Alembic auto-migration warning: {e}")
+
+    try:
+        db_pool = psycopg2.pool.ThreadedConnectionPool(
+            5, 50,
+            host=POSTGRES_HOST,
+            port=POSTGRES_PORT,
+            dbname=POSTGRES_DB,
+            user=POSTGRES_USER,
+            password=POSTGRES_PASSWORD
+        )
+        logger.info("Successfully connected to PostgreSQL database and initialized thread-safe connection pool.")
+    except Exception as e:
+        logger.warning(f"PostgreSQL connection / pool initialization warning: {e}")
+
+# Kafka Consumer Background Thread
+KAFKA_BROKERS = os.environ.get("KAFKA_BROKERS", "kafka:9092")
+
+def start_kafka_consumer():
+    """Background thread consuming events from Kafka topic 'task-events' with 3 retries and a Dead-Letter Queue (DLQ)."""
+    import threading
+    import json
+    import time
+    from kafka import KafkaConsumer, KafkaProducer
+    
+    # Initialize DLQ Producer
+    dlq_producer = None
+    try:
+        dlq_producer = KafkaProducer(
+            bootstrap_servers=KAFKA_BROKERS.split(','),
+            value_serializer=lambda v: json.dumps(v).encode('utf-8'),
+            retries=5
+        )
+        logger.info("Successfully connected Kafka DLQ Producer.")
+    except Exception as ex:
+        logger.warning(f"Failed to initialize Kafka DLQ Producer: {ex}")
+
+    def consume_loop():
+        try:
+            consumer = KafkaConsumer(
+                'task-events',
+                bootstrap_servers=KAFKA_BROKERS.split(','),
+                value_deserializer=lambda m: json.loads(m.decode('utf-8')),
+                auto_offset_reset='earliest',
+                group_id='python-app-consumer-group'
+            )
+            logger.info(f"Successfully started Kafka consumer thread listening on topic 'task-events' ({KAFKA_BROKERS})")
+            for message in consumer:
+                event_data = message.value or {}
+                event_id = event_data.get("event_id", "unknown")
+                payload_str = str(event_data.get("payload", ""))
+                logger.info(f"Received Kafka event '{event_id}' on topic '{message.topic}': {payload_str}")
+                
+                success = False
+                max_retries = 3
+                for attempt in range(1, max_retries + 1):
+                    if db_pool:
+                        conn = None
+                        try:
+                            conn = db_pool.getconn()
+                            with conn.cursor() as cur:
+                                cur.execute(
+                                    "INSERT INTO kafka_events (event_id, topic, payload) VALUES (%s, %s, %s);",
+                                    (event_id, message.topic, payload_str)
+                                )
+                                conn.commit()
+                            logger.info(f"Kafka event '{event_id}' successfully saved to PostgreSQL on attempt {attempt}.")
+                            success = True
+                            break
+                        except Exception as db_err:
+                            logger.warning(f"Database write attempt {attempt} failed for event '{event_id}': {db_err}")
+                            time.sleep(1)
+                        finally:
+                            if conn:
+                                db_pool.putconn(conn)
+                    else:
+                        logger.warning("Database connection pool is unavailable. Cannot process event.")
+                        time.sleep(1)
+
+                if not success:
+                    logger.error(f"Event '{event_id}' failed all {max_retries} attempts. Routing to DLQ topic 'task-events-dlq'.")
+                    if dlq_producer:
+                        try:
+                            dlq_record = {
+                                "original_event": event_data,
+                                "failed_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+                                "error": "Failed to write audit log to database after 3 retries",
+                                "source": "python-app"
+                            }
+                            dlq_producer.send('task-events-dlq', key=event_id.encode('utf-8'), value=dlq_record)
+                            dlq_producer.flush()
+                            logger.info(f"Event '{event_id}' successfully routed to DLQ.")
+                        except Exception as dlq_err:
+                            logger.critical(f"Failed to publish event '{event_id}' to DLQ: {dlq_err}")
+                    else:
+                        logger.critical(f"DLQ Producer is not connected. Event '{event_id}' was dropped!")
+        except Exception as e:
+            logger.warning(f"Kafka Consumer thread warning / disconnected: {e}")
+
+    t = threading.Thread(target=consume_loop, daemon=True)
+    t.start()
+
+# ============================================================================
+# INITIALIZATION & CONFIGURATION
+# ============================================================================
 
 app = Flask(__name__)
 
-# Instrument Flask
-FlaskInstrumentor().instrument_app(app)
+# Instrument Flask with OpenTelemetry
+setup_observability(app)
+
+tracer = trace.get_tracer("python-app-tracer")
+
+# Initialize database pool
+init_db()
+
+# Start background Kafka consumer thread
+start_kafka_consumer()
+
+# ============================================================================
+# APPLICATION ROUTES
+# ============================================================================
 
 @app.route("/")
 def index():
+    """Root / Health Check endpoint."""
     logger.info("Python application index route triggered.")
     return jsonify({"message": "Hello from Python App!"})
 
-# Base /data route
+
 @app.route("/data")
 def data():
+    """Simple calculation endpoint called downstream by Node.js app."""
     logger.info("Python application /data route processing a request.")
     calculation = sum(range(1, 10001))
     logger.info(f"Python application calculation completed: {calculation}")
@@ -105,19 +183,22 @@ def data():
         "service": "python-app"
     })
 
-# Analyze POST route with custom counter metric
+
 @app.route("/analyze", methods=["POST"])
 def analyze():
+    """
+    Analyzes calculation properties received from downstream.
+    Increments `python_analysis_ops_total` Prometheus counter.
+    """
     logger.info("Python application /analyze route triggered (POST).")
+    logger.info(f"Incoming headers in python-app: {dict(request.headers)}")
     req_data = request.get_json() or {}
     number = req_data.get("number", 0)
     calc_type = req_data.get("type", "unknown")
     
-    # Increment custom metric counter
     analysis_counter.add(1, {"calculation_type": calc_type})
     logger.info(f"Analyzing calculation value: {number} from type: {calc_type}")
 
-    # Simulate some analysis properties
     is_even = (number % 2 == 0)
     length = len(str(number))
     
@@ -131,27 +212,27 @@ def analyze():
         "service": "python-app"
     })
 
-# Heavy Downstream Analysis simulation (demonstrates nested Spans & Histograms)
+
 @app.route("/heavy-analysis", methods=["POST"])
 def heavy_analysis():
+    """
+    Simulates heavy compute tasks.
+    Creates a custom inner span (`HeavyAnalysisCompute`) and records duration histogram.
+    """
     logger.info("Python application /heavy-analysis route triggered (POST).")
     req_data = request.get_json() or {}
     dataset_id = req_data.get("dataset_id", 0)
     tasks = req_data.get("tasks", [])
 
-    tracer = trace.get_tracer("python-app-tracer")
     start_time = time.time()
     
-    # Create custom inner span
     with tracer.start_as_current_span("HeavyAnalysisCompute") as span:
         logger.info(f"Starting analysis compute for dataset ID: {dataset_id}")
         span.set_attribute("analysis.dataset_id", dataset_id)
         span.set_attribute("analysis.tasks_count", len(tasks))
         
-        # Simulate processing duration
-        time.sleep(0.15) 
+        time.sleep(0.15)
         
-        # Increment metric counters
         processed_items_counter.add(10, {"status": "success", "type": "dataset_records"})
         logger.info(f"Finished analysis compute for dataset ID: {dataset_id}")
 
@@ -166,24 +247,208 @@ def heavy_analysis():
         "service": "python-app"
     })
 
-# Intentionally failing endpoint with nested spans and recorded exceptions
+
+@app.route("/math/prime-factors/<int:n>")
+def prime_factors(n):
+    """
+    Computes prime factorization of integer n.
+    Captures custom span attributes `math.input` and `math.factors`.
+    """
+    logger.info(f"Computing prime factors for N={n}")
+    
+    with tracer.start_as_current_span("PrimeFactorization") as span:
+        span.set_attribute("math.input", n)
+        
+        factors = []
+        d = 2
+        temp_n = n
+        while temp_n >= 2:
+            while temp_n % d == 0:
+                factors.append(d)
+                temp_n //= d
+            d += 1
+            if d * d > temp_n:
+                if temp_n > 1:
+                    factors.append(temp_n)
+                break
+                
+        span.set_attribute("math.factors_count", len(factors))
+        span.set_attribute("math.is_prime", len(factors) == 1)
+        
+        logger.info(f"Prime factorization for N={n} completed: {factors}")
+        
+    return jsonify({
+        "status": "success",
+        "number": n,
+        "factors": factors,
+        "is_prime": len(factors) == 1,
+        "service": "python-app"
+    })
+
+
+@app.route("/math/factorial/<int:n>")
+def factorial(n):
+    """
+    Computes factorial N! = N * (N-1) * ... * 1.
+    Captures span attributes `math.input` and `math.factorial_digits`.
+    """
+    if n < 0 or n > 2000:
+        return jsonify({
+            "status": "error",
+            "message": "N must be an integer between 0 and 2000"
+        }), 400
+
+    logger.info(f"Computing factorial for N={n}")
+    start_time = time.time()
+    
+    with tracer.start_as_current_span("FactorialComputation") as span:
+        span.set_attribute("math.input", n)
+        import math
+        res = math.factorial(n)
+        res_str = str(res)
+        digits = len(res_str)
+        
+        span.set_attribute("math.factorial_digits", digits)
+        logger.info(f"Factorial calculation for N={n} completed. Digits={digits}")
+        
+    duration = time.time() - start_time
+    task_duration_histogram.record(duration, {"task_type": "factorial_computation"})
+
+    display_res = res_str if digits <= 100 else f"{res_str[:40]}... ({digits} total digits) ...{res_str[-20:]}"
+
+    return jsonify({
+        "status": "success",
+        "number": n,
+        "factorial": display_res,
+        "digits": digits,
+        "duration_sec": duration,
+        "service": "python-app"
+    })
+
+
+@app.route("/text/analyze", methods=["POST"])
+def text_analyze():
+    """
+    Performs text sentiment & statistics analysis.
+    Records duration histogram and increments processed items counter.
+    """
+    logger.info("Python application /text/analyze triggered (POST).")
+    req_data = request.get_json() or {}
+    text = req_data.get("text", "")
+    
+    start_time = time.time()
+    
+    with tracer.start_as_current_span("TextSentimentAnalysis") as span:
+        span.set_attribute("text.length", len(text))
+        
+        words = text.split()
+        word_count = len(words)
+        span.set_attribute("text.word_count", word_count)
+        
+        pos_words = {"good", "great", "awesome", "excellent", "happy", "love", "fast", "amazing", "success", "healthy"}
+        neg_words = {"bad", "poor", "slow", "error", "fail", "terrible", "crash", "wrong", "hate", "fault"}
+        
+        score = 0
+        for w in words:
+            w_clean = w.lower().strip(".,!?")
+            if w_clean in pos_words:
+                score += 1
+            elif w_clean in neg_words:
+                score -= 1
+                
+        sentiment = "positive" if score > 0 else ("negative" if score < 0 else "neutral")
+        span.set_attribute("text.sentiment", sentiment)
+        span.set_attribute("text.sentiment_score", score)
+        
+        processed_items_counter.add(word_count, {"status": "analyzed", "type": "words"})
+        logger.info(f"Text analysis completed. Words={word_count}, Sentiment={sentiment}")
+
+    duration = time.time() - start_time
+    task_duration_histogram.record(duration, {"task_type": "text_analysis"})
+    
+    return jsonify({
+        "status": "success",
+        "text_length": len(text),
+        "word_count": word_count,
+        "sentiment": sentiment,
+        "sentiment_score": score,
+        "service": "python-app"
+    })
+
+
+@app.route("/data/aggregate", methods=["POST"])
+def data_aggregate():
+    """
+    Performs statistical aggregation (sum, mean, min, max) on input array.
+    """
+    logger.info("Python application /data/aggregate triggered (POST).")
+    req_data = request.get_json() or {}
+    values = req_data.get("values", [])
+    
+    if not isinstance(values, list) or len(values) == 0:
+        return jsonify({"status": "error", "message": "Field 'values' must be a non-empty array of numbers"}), 400
+        
+    nums = [float(x) for x in values if isinstance(x, (int, float))]
+    if not nums:
+        return jsonify({"status": "error", "message": "No valid numeric values provided"}), 400
+
+    total = sum(nums)
+    avg = total / len(nums)
+    minimum = min(nums)
+    maximum = max(nums)
+
+    analysis_counter.add(1, {"calculation_type": "data_aggregate"})
+    logger.info(f"Data aggregation completed for {len(nums)} items. Mean={avg:.2f}")
+
+    return jsonify({
+        "status": "success",
+        "count": len(nums),
+        "sum": total,
+        "mean": round(avg, 2),
+        "min": minimum,
+        "max": maximum,
+        "service": "python-app"
+    })
+
+
+@app.route("/system/status")
+def system_status():
+    """
+    Returns simulated system diagnostics (CPU, Memory, Disk, Status).
+    """
+    logger.info("Python application /system/status triggered.")
+    
+    cpu_usage = round(random.uniform(15.0, 75.0), 1)
+    memory_usage = round(random.uniform(40.0, 85.0), 1)
+    
+    return jsonify({
+        "status": "healthy",
+        "service": "python-app",
+        "cpu_usage_pct": cpu_usage,
+        "memory_usage_pct": memory_usage,
+        "active_threads": random.randint(4, 16),
+        "uptime_seconds": round(time.time() - PROCESS_START_TIME, 1)
+    })
+
+
 @app.route("/faulty-endpoint")
 def faulty_endpoint():
+    """
+    Simulates a database failure (500 Internal Server Error).
+    Records exception and marks span status as ERROR for debugging in Tempo/Loki.
+    """
     logger.info("Python application /faulty-endpoint triggered.")
     
-    tracer = trace.get_tracer("python-app-tracer")
     with tracer.start_as_current_span("DatabaseWrite") as span:
+        span.set_attribute("db.system", "postgresql")
         span.set_attribute("db.operation", "INSERT")
         span.set_attribute("db.table", "users_table")
         
-        # Simulate db operation
         time.sleep(0.05)
         
-        # Simulate database deadlock / write crash
         err = RuntimeError("Simulated Database Transaction Lock Timeout")
         logger.error(f"Database write crash: {str(err)}")
         
-        # Mark span with error status and record exception
         span.set_status(trace.StatusCode.ERROR, str(err))
         span.record_exception(err)
         
@@ -193,177 +458,72 @@ def faulty_endpoint():
         "message": str(err)
     }), 500
 
-# Database user lookup simulation route (sets trace error if invalid)
+
 @app.route("/db/user/<user_id>")
 def db_user(user_id):
-    logger.info(f"Simulating database query for user_id: {user_id}")
+    """
+    Queries user details from PostgreSQL database (or falls back to mock user).
+    """
+    logger.info(f"Querying database for user_id: {user_id}")
     
-    if user_id.isdigit():
-        return jsonify({
-            "id": int(user_id),
-            "name": f"Mock User {user_id}",
-            "email": f"user{user_id}@example.local",
-            "role": "editor" if int(user_id) % 2 == 0 else "viewer"
-        })
-    else:
+    if not user_id.isdigit():
         logger.warning(f"Database lookup failed. Invalid non-numeric user_id format: '{user_id}'")
-        
         current_span = trace.get_current_span()
         if current_span:
             current_span.set_status(trace.StatusCode.ERROR, f"Invalid non-numeric user ID: {user_id}")
             current_span.record_exception(ValueError(f"Invalid non-numeric user ID format: {user_id}"))
-            
         return jsonify({
             "status": "error",
             "message": f"User ID must be an integer. Received: '{user_id}'"
         }), 404
 
-swagger_document = {
-    "openapi": "3.0.0",
-    "info": {
-        "title": "Python Flask App API",
-        "version": "1.0.0",
-        "description": "API Documentation for Python Flask App in LGTM Stack"
-    },
-    "paths": {
-        "/": {
-            "get": {
-                "summary": "Root / Index",
-                "responses": {
-                    "200": { "description": "Success" }
-                }
-            }
-        },
-        "/data": {
-            "get": {
-                "summary": "Retrieve Sum Calculation",
-                "responses": {
-                    "200": { "description": "Success" }
-                }
-            }
-        },
-        "/analyze": {
-            "post": {
-                "summary": "Analyze Number Properties",
-                "requestBody": {
-                    "required": True,
-                    "content": {
-                        "application/json": {
-                            "schema": {
-                                "type": "object",
-                                "properties": {
-                                    "number": { "type": "integer" },
-                                    "type": { "type": "string" }
-                                }
-                            }
-                        }
-                    }
-                },
-                "responses": {
-                    "200": { "description": "Success" }
-                }
-            }
-        },
-        "/heavy-analysis": {
-            "post": {
-                "summary": "Heavy Compute Simulation",
-                "requestBody": {
-                    "required": True,
-                    "content": {
-                        "application/json": {
-                            "schema": {
-                                "type": "object",
-                                "properties": {
-                                    "dataset_id": { "type": "integer" },
-                                    "tasks": { "type": "array", "items": { "type": "string" } }
-                                }
-                            }
-                        }
-                    }
-                },
-                "responses": {
-                    "200": { "description": "Success" }
-                }
-            }
-        },
-        "/faulty-endpoint": {
-            "get": {
-                "summary": "Faulty Database write simulation",
-                "responses": {
-                    "500": { "description": "Internal Server Error" }
-                }
-            }
-        },
-        "/db/user/{user_id}": {
-            "get": {
-                "summary": "Query user details",
-                "parameters": [
-                    {
-                        "name": "user_id",
-                        "in": "path",
-                        "required": True,
-                        "schema": { "type": "string" },
-                        "description": "The user ID to fetch"
-                    }
-                ],
-                "responses": {
-                    "200": { "description": "Success" },
-                    "404": { "description": "User Not Found" }
-                }
-            }
-        }
-    }
-}
+    uid = int(user_id)
+    if db_pool:
+        conn = None
+        try:
+            conn = db_pool.getconn()
+            with conn.cursor() as cur:
+                cur.execute("SELECT id, name, email, role, created_at FROM users WHERE id = %s;", (uid,))
+                row = cur.fetchone()
+                if row:
+                    return jsonify({
+                        "id": row[0],
+                        "name": row[1],
+                        "email": row[2],
+                        "role": row[3],
+                        "created_at": str(row[4]),
+                        "database": "postgresql"
+                    })
+        except Exception as err:
+            logger.error(f"PostgreSQL query error: {err}")
+        finally:
+            if conn:
+                db_pool.putconn(conn)
+
+    return jsonify({
+        "id": uid,
+        "name": f"Mock User {uid}",
+        "email": f"user{uid}@example.local",
+        "role": "editor" if uid % 2 == 0 else "viewer",
+        "database": "mock_fallback"
+    })
+
+# ============================================================================
+# DOCUMENTATION ENDPOINTS
+# ============================================================================
 
 @app.route("/swagger.json")
 def swagger_json():
-    return jsonify(swagger_document)
+    return jsonify(SWAGGER_DOCUMENT)
+
 
 @app.route("/docs")
 def docs():
-    return """
-    <!DOCTYPE html>
-    <html lang="en">
-    <head>
-      <meta charset="UTF-8">
-      <title>Python App API Docs</title>
-      <link rel="stylesheet" type="text/css" href="https://unpkg.com/swagger-ui-dist@5/swagger-ui.css" />
-      <link rel="stylesheet" type="text/css" href="https://cdn.jsdelivr.net/npm/swagger-themes@1.4.3/themes/dark.min.css" />
-      <link rel="icon" type="image/png" href="https://unpkg.com/swagger-ui-dist@5/favicon-32x32.png" sizes="32x32" />
-      <style>
-        html { box-sizing: border-box; overflow-y: scroll; }
-        *, *:before, *:after { box-sizing: inherit; }
-        body { margin: 0; background: #1b1b1b; font-family: sans-serif; }
-        .swagger-ui .topbar { background-color: #111111; border-bottom: 2px solid #333333; }
-        .swagger-ui .info .title { color: #ffffff !important; }
-        .swagger-ui { background-color: #1b1b1b; }
-      </style>
-    </head>
-    <body>
-      <div id="swagger-ui"></div>
-      <script src="https://unpkg.com/swagger-ui-dist@5/swagger-ui-bundle.js" charset="UTF-8"></script>
-      <script src="https://unpkg.com/swagger-ui-dist@5/swagger-ui-standalone-preset.js" charset="UTF-8"></script>
-      <script>
-        window.onload = function() {
-          const ui = SwaggerUIBundle({
-            url: "/swagger.json",
-            dom_id: '#swagger-ui',
-            deepLinking: true,
-            presets: [
-              SwaggerUIBundle.presets.apis,
-              SwaggerUIStandalonePreset
-            ],
-            plugins: [
-              SwaggerUIBundle.plugins.DownloadUrl
-            ],
-            layout: "StandaloneLayout"
-          });
-          window.ui = ui;
-        };
-      </script>
-    </body>
-    </html>
-    """
+    return SWAGGER_UI_HTML
+
+# ============================================================================
+# SERVER INITIALIZATION
+# ============================================================================
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))

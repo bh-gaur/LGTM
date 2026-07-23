@@ -11,11 +11,16 @@
     "@opentelemetry/sdk-logs": "0.218.0",
     "@opentelemetry/sdk-metrics": "2.7.1",
     "@opentelemetry/sdk-node": "0.218.0",
+    "@opentelemetry/core": "1.28.0",
     "express": "^4.19.2",
+    "kafkajs": "^2.2.4",
+    "@opentelemetry/instrumentation-kafkajs": "0.29.0",
     "prom-client": "^15.1.2",
-    "winston": "^3.13.0"
+    "redis": "^4.6.13",
+    "winston": "^3.13.0",
+    "winston-transport": "^4.7.0"
   },
   "scripts": {
-    "start": "node -r ./instrumentation.js app.js"
+    "start": "node app.js"
   }
 }

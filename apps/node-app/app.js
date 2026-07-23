@@ -1,173 +1,160 @@
+const {
+  api,
+  client,
+  logger,
+  calculationCounter,
+  errorCounter,
+  taskDurationHistogram,
+  activeUsersGauge,
+  getActiveExemplar
+} = require('../common/observability');
+
+const path = require('path');
 const express = require('express');
-const http = require('http');
-const winston = require('winston');
-const Transport = require('winston-transport');
-const api = require('@opentelemetry/api');
 
-// Initialize prom-client and Metrics
-const client = require('prom-client');
-client.register.setContentType(client.Registry.OPENMETRICS_CONTENT_TYPE);
-
-const calculationCounter = new client.Counter({
-  name: 'calculation_requests_total',
-  help: 'Total number of calculation requests processed by Node.js',
-  labelNames: ['number'],
-  enableExemplars: true
-});
-
-const errorCounter = new client.Counter({
-  name: 'error_requests_total',
-  help: 'Total number of errored requests in Node.js',
-  labelNames: ['route'],
-  enableExemplars: true
-});
-
-const taskDurationHistogram = new client.Histogram({
-  name: 'node_task_duration_seconds',
-  help: 'Duration of nested tasks executed in Node.js',
-  labelNames: ['task_name', 'status'],
-  enableExemplars: true,
-  buckets: [0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10]
-});
-
-const activeUsersGauge = new client.Gauge({
-  name: 'node_active_users',
-  help: 'Simulated count of active users on the system'
-});
-
-// Helper to get active trace context for exemplars
-function getActiveExemplar() {
-  const activeSpan = api.trace.getActiveSpan();
-  if (activeSpan) {
-    const spanContext = activeSpan.spanContext();
-    if (spanContext && (spanContext.traceFlags & api.TraceFlags.SAMPLED)) {
-      return {
-        trace_id: spanContext.traceId,
-        span_id: spanContext.spanId
-      };
-    }
-  }
-  return undefined;
-}
-
-// Custom Winston OTel Log Transport to send logs directly to Grafana Alloy
-class OTelLogTransport extends Transport {
-  constructor(opts) {
-    super(opts);
-    console.log('OTelLogTransport constructor called with URL:', opts ? opts.url : 'default');
-    this.url = opts.url || 'http://alloy:4318/v1/logs';
-  }
-
-  log(info, callback) {
-    console.log('OTelLogTransport log called:', info.message);
-    setImmediate(() => {
-      this.emit('logged', info);
-    });
-
-    const activeSpan = api.trace.getActiveSpan();
-    let traceId = '';
-    let spanId = '';
-    if (activeSpan) {
-      const spanContext = activeSpan.spanContext();
-      traceId = spanContext.traceId;
-      spanId = spanContext.spanId;
-    }
-
-    const payload = {
-      resourceLogs: [{
-        resource: {
-          attributes: [
-            { key: 'service.name', value: { stringValue: 'node-app' } }
-          ]
-        },
-        scopeLogs: [{
-          scope: { name: 'winston-otel-transport' },
-          logRecords: [{
-            timeUnixNano: String(Date.now() * 1000000),
-            body: { stringValue: info.message },
-            severityText: info.level.toUpperCase(),
-            severityNumber: info.level === 'error' ? 17 : 9,
-            traceId: traceId,
-            spanId: spanId
-          }]
-        }]
-      }]
-    };
-
-    const data = JSON.stringify(payload);
-    const parsedUrl = new URL(this.url);
-    const req = http.request({
-      hostname: parsedUrl.hostname,
-      port: parsedUrl.port,
-      path: parsedUrl.pathname,
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Content-Length': data.length
-      }
-    }, (res) => {
-      if (res.statusCode >= 400) {
-        console.error('OTelLogTransport response status:', res.statusCode);
-      }
-      res.resume();
-    });
-    
-    req.on('error', (err) => {
-      console.error('OTelLogTransport error:', err.message);
-    });
-    req.write(data);
-    req.end();
-
-    callback();
-  }
-}
-
-const logger = winston.createLogger({
-  level: 'info',
-  format: winston.format.json(),
-  transports: [
-    new winston.transports.Console(),
-    new OTelLogTransport({ url: 'http://alloy:4318/v1/logs' })
-  ]
-});
+const { swaggerDocument, swaggerUiHtml } = require('./swagger');
 
 const app = express();
-const PORT = process.env.PORT || 8081;
+app.use(express.json());
 
-// Helper to simulate asynchronous timeout work
-const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+// Serve static web frontend UI from public/ directory
+app.use(express.static(path.join(__dirname, 'public')));
 
-// 1. Root / Health route
-app.get('/', (req, res) => {
-  logger.info('Node.js app received request on root path');
-  activeUsersGauge.set(Math.floor(Math.random() * 15) + 30);
+// ============================================================================
+// REDIS CACHE INITIALIZATION
+// ============================================================================
+const { createClient } = require('redis');
+const REDIS_HOST = process.env.REDIS_HOST || 'localhost';
+const redisClient = createClient({ url: `redis://${REDIS_HOST}:6379` });
 
-  http.get('http://python-app:5000/data', (response) => {
-    let data = '';
-    response.on('data', (chunk) => { data += chunk; });
-    response.on('end', () => {
-      logger.info('Received response from Python service', { python_response_length: data.length });
-      try {
-        const parsedData = JSON.parse(data);
-        res.json({
-          message: "Hello from Node.js App!",
-          downstream_data: parsedData
-        });
-      } catch (e) {
-        logger.error('Failed to parse Python service response', { error: e.message });
-        res.status(500).json({ error: "Failed to parse Python service response" });
-      }
-    });
-  }).on('error', (err) => {
-    logger.error('Failed to contact Python service', { error: err.message });
-    res.status(500).json({ error: `Failed to contact Python service: ${err.message}` });
-  });
+redisClient.on('error', (err) => {
+  logger.warn(`Redis Client Error: ${err.message}`);
 });
 
-// 2. Calculation route with custom Span and custom Metric Counter
-app.get('/calculate/:num', (req, res) => {
-  const num = parseInt(req.params.num) || 10;
+let isRedisConnected = false;
+async function initRedis() {
+  try {
+    await redisClient.connect();
+    logger.info(`Successfully connected to Redis cache at redis://${REDIS_HOST}:6379`);
+    isRedisConnected = true;
+  } catch (err) {
+    logger.warn(`Redis Cache unavailable, proceeding with No-Op cache fallbacks: ${err.message}`);
+  }
+}
+initRedis();
+
+// ============================================================================
+// API KEY AUTHENTICATION MIDDLEWARE
+// ============================================================================
+const VALID_API_KEY = process.env.API_KEY || 'lgtm-secret-key';
+
+function apiKeyAuth(req, res, next) {
+  // Exclude UI, Swagger docs, metrics and health checks from authentication
+  if (req.path === '/ui' || req.path === '/' || req.path.startsWith('/swagger') || req.path.startsWith('/docs') || req.path === '/metrics') {
+    return next();
+  }
+  const rawApiKey = req.headers['x-api-key'] || req.query.api_key;
+  // Support comma-separated duplicates gracefully (e.g. from load balancers or gateways)
+  const apiKey = typeof rawApiKey === 'string' ? rawApiKey.split(',')[0].trim() : undefined;
+
+  if (!apiKey || apiKey !== VALID_API_KEY) {
+    logger.warn(`Unauthorized access attempt to: ${req.path}`);
+    return res.status(401).json({ error: 'Unauthorized: Invalid or missing X-API-Key header.' });
+  }
+  next();
+}
+app.use(apiKeyAuth);
+
+const KAFKA_BROKERS = (process.env.KAFKA_BROKERS || 'kafka:9092').split(',');
+const PYTHON_SERVICE_URL = process.env.PYTHON_SERVICE_URL || 'http://python-app:5000';
+
+let kafkaProducer = null;
+
+async function initKafkaProducer() {
+  try {
+    const { Kafka } = require('kafkajs');
+    const kafka = new Kafka({
+      clientId: 'node-app-producer',
+      brokers: KAFKA_BROKERS,
+      retry: { retries: 5 }
+    });
+    kafkaProducer = kafka.producer();
+    await kafkaProducer.connect();
+    logger.info(`Successfully connected Kafka Producer to brokers: ${KAFKA_BROKERS.join(',')}`);
+  } catch (err) {
+    logger.warn(`Kafka Producer connection warning: ${err.message}`);
+  }
+}
+initKafkaProducer();
+
+// ============================================================================
+// HELPERS
+// ============================================================================
+
+/** Async delay helper for simulating task latency */
+const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+/**
+ * High-concurrency HTTP helper with automatic W3C Trace Context propagation
+ * to ensure distributed tracing across microservices (Node.js -> Python).
+ */
+async function fetchJson(url, options = {}) {
+  const headers = options.headers ? { ...options.headers } : {};
+
+  const fetchOptions = {
+    keepalive: true,
+    ...options,
+    headers
+  };
+  const response = await fetch(url, fetchOptions);
+  let data;
+  try {
+    data = await response.json();
+  } catch (err) {
+    const text = await response.text().catch(() => '');
+    data = { error: text || `HTTP ${response.status} ${response.statusText}` };
+  }
+  return { status: response.status, data };
+}
+
+// ============================================================================
+// APPLICATION ROUTES
+// ============================================================================
+
+/**
+ * 1. Root / UI Dashboard Route
+ */
+app.get('/ui', (req, res) => {
+  res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, private');
+  res.sendFile(path.join(__dirname, 'public', 'index.html'));
+});
+
+/**
+ * 2. Fibonacci Calculation Route
+ * - Demonstrates custom OpenTelemetry Spans & Exemplar Metric Counters
+ * - Forwards calculation result to Python service for downstream analysis
+ */
+app.get('/calculate/:num', async (req, res) => {
+  const num = parseInt(req.params.num, 10);
+  if (isNaN(num) || num < 0 || num > 1000) {
+    logger.warn(`Invalid Fibonacci N value requested: ${req.params.num}`);
+    return res.status(400).json({ error: 'Parameter num must be a valid non-negative integer between 0 and 1000' });
+  }
   logger.info(`Node.js processing Fibonacci calculation for N=${num}`);
+
+  const cacheKey = `fib:${num}`;
+  if (isRedisConnected) {
+    try {
+      const cachedVal = await redisClient.get(cacheKey);
+      if (cachedVal) {
+        logger.info(`Redis cache hit for Fibonacci N=${num}`);
+        return res.json(JSON.parse(cachedVal));
+      }
+    } catch (cacheErr) {
+      logger.warn(`Redis read error: ${cacheErr.message}`);
+    }
+  }
+
   calculationCounter.inc({
     labels: { number: num.toString() },
     value: 1,
@@ -175,81 +162,201 @@ app.get('/calculate/:num', (req, res) => {
   });
   activeUsersGauge.set(Math.floor(Math.random() * 20) + 40);
 
-  // Create a custom active span to show in Tempo
   const tracer = api.trace.getTracer('node-app-tracer');
-  tracer.startActiveSpan('CalculateFibonacci', (span) => {
+
+  await tracer.startActiveSpan('CalculateFibonacci', async (span) => {
     try {
-      // Fibonacci calculation logic
-      let a = 0, b = 1, temp;
-      for (let i = 0; i < num; i++) {
-        temp = a + b;
+      // 1. Verify token with auth-service downstream
+      const { status: authStatus, data: authData } = await fetchJson('http://auth-service:8082/verify', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ token: 'lgtm-secret-token' })
+      });
+
+      if (authStatus !== 200 || !authData.verified) {
+        logger.warn('Auth-service verification failed.');
+        span.setStatus({ code: api.SpanStatusCode.ERROR, message: 'Authentication verification failed' });
+        return res.status(401).json({ error: 'Auth-service verification failed' });
+      }
+
+      let a = 0, b = 1;
+      let sum = 0;
+      for (let i = 0; i <= num; i++) {
+        sum += a;
+        const temp = a + b;
         a = b;
         b = temp;
       }
+
       span.setAttribute('calculation.type', 'fibonacci');
       span.setAttribute('calculation.input', num);
-      span.setAttribute('calculation.result', a);
+      span.setAttribute('calculation.result', sum);
 
-      logger.info(`Fibonacci calculation completed. Result=${a}. Calling Python app downstream to analyze...`);
+      logger.info(`Fibonacci calculation completed. Sum of series up to N=${num} is ${sum}. Calling Python app downstream...`);
 
-      // Make downstream POST request to analyze
-      const postData = JSON.stringify({ number: a, type: 'fibonacci' });
-      const postReq = http.request({
-        hostname: 'python-app',
-        port: 5000,
-        path: '/analyze',
+      const { data: analysisData } = await fetchJson(`${PYTHON_SERVICE_URL}/analyze`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Content-Length': Buffer.byteLength(postData)
-        }
-      }, (response) => {
-        let body = '';
-        response.on('data', (chunk) => { body += chunk; });
-        response.on('end', () => {
-          logger.info('Python analysis completed', { response: body });
-          res.json({
-            service: 'node-app',
-            result: a,
-            analysis: JSON.parse(body)
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ number: sum, type: 'fibonacci' })
+      });
+
+      logger.info('Python analysis completed', { response: analysisData });
+
+      const responsePayload = {
+        service: 'node-app',
+        result: sum,
+        analysis: analysisData,
+        cache: 'miss'
+      };
+
+      if (isRedisConnected) {
+        try {
+          await redisClient.set(cacheKey, JSON.stringify({ ...responsePayload, cache: 'hit' }), {
+            EX: 300
           });
-          span.end();
-        });
-      });
+        } catch (cacheWriteErr) {
+          logger.warn(`Redis write error: ${cacheWriteErr.message}`);
+        }
+      }
 
-      postReq.on('error', (err) => {
-        logger.error('Failed to call python analyze endpoint', { error: err.message });
-        span.recordException(err);
-        span.setStatus({ code: api.SpanStatusCode.ERROR, message: err.message });
-        res.status(500).json({ error: 'Failed to contact Python analyze service' });
-        span.end();
-      });
-
-      postReq.write(postData);
-      postReq.end();
+      res.json(responsePayload);
     } catch (err) {
       span.recordException(err);
       span.setStatus({ code: api.SpanStatusCode.ERROR, message: err.message });
-      logger.error('Unexpected calculation error', { error: err.message });
+      logger.error('Failed during calculation or downstream call', { error: err.stack || err.message });
       res.status(500).json({ error: err.message });
+    } finally {
       span.end();
     }
   });
 });
 
-// 3. Complex Multi-Step Task route (demonstrates nested Spans & Histograms)
-app.get('/complex-task', (req, res) => {
+/**
+ * 3. Prime Factorization Proxy Route -> Python
+ */
+app.get('/math/prime-factors/:n', async (req, res) => {
+  const n = parseInt(req.params.n, 10);
+  if (isNaN(n) || n <= 0) {
+    logger.warn(`Invalid prime factors N value: ${req.params.n}`);
+    return res.status(400).json({ error: 'Parameter N must be a valid positive integer' });
+  }
+  logger.info(`Proxying prime factorization request for N=${n} to Python backend`);
+  try {
+    const { status, data } = await fetchJson(`${PYTHON_SERVICE_URL}/math/prime-factors/${n}`);
+    res.status(status).json(data);
+  } catch (err) {
+    logger.error('Failed to proxy prime factorization request', { error: err.message });
+    res.status(500).json({ error: 'Failed to contact Python backend' });
+  }
+});
+
+/**
+ * 3b. Factorial Calculation Proxy Route -> Python
+ */
+app.get('/math/factorial/:n', async (req, res) => {
+  const n = parseInt(req.params.n, 10);
+  if (isNaN(n) || n <= 0) {
+    logger.warn(`Invalid factorial N value: ${req.params.n}`);
+    return res.status(400).json({ error: 'Parameter N must be a valid positive integer' });
+  }
+
+  const cacheKey = `fact:${n}`;
+  if (isRedisConnected) {
+    try {
+      const cachedVal = await redisClient.get(cacheKey);
+      if (cachedVal) {
+        logger.info(`Redis cache hit for Factorial N=${n}`);
+        return res.json(JSON.parse(cachedVal));
+      }
+    } catch (cacheErr) {
+      logger.warn(`Redis read error: ${cacheErr.message}`);
+    }
+  }
+
+  logger.info(`Proxying factorial request for N=${n} to Python backend`);
+  try {
+    const { status, data } = await fetchJson(`${PYTHON_SERVICE_URL}/math/factorial/${n}`);
+    if (status === 200 && isRedisConnected) {
+      try {
+        await redisClient.set(cacheKey, JSON.stringify({ ...data, cache: 'hit' }), {
+          EX: 300
+        });
+      } catch (cacheWriteErr) {
+        logger.warn(`Redis write error: ${cacheWriteErr.message}`);
+      }
+    }
+    res.status(status).json({ ...data, cache: 'miss' });
+  } catch (err) {
+    logger.error('Failed to proxy factorial request', { error: err.message });
+    res.status(500).json({ error: 'Failed to contact Python backend' });
+  }
+});
+
+/**
+ * 4. Text Sentiment Analysis Proxy Route -> Python
+ */
+app.post('/text/analyze', async (req, res) => {
+  logger.info('Proxying text sentiment analysis request to Python backend');
+  try {
+    const { status, data } = await fetchJson(`${PYTHON_SERVICE_URL}/text/analyze`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(req.body)
+    });
+    res.status(status).json(data);
+  } catch (err) {
+    logger.error('Failed to proxy text analysis request', { error: err.message });
+    res.status(500).json({ error: 'Failed to contact Python backend' });
+  }
+});
+
+/**
+ * 5. Data Array Aggregation Proxy Route -> Python
+ */
+app.post('/data/aggregate', async (req, res) => {
+  logger.info('Proxying data aggregation request to Python backend');
+  try {
+    const { status, data } = await fetchJson(`${PYTHON_SERVICE_URL}/data/aggregate`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(req.body)
+    });
+    res.status(status).json(data);
+  } catch (err) {
+    logger.error('Failed to proxy data aggregation request', { error: err.message });
+    res.status(500).json({ error: 'Failed to contact Python backend' });
+  }
+});
+
+/**
+ * 6. System Status Diagnostics Proxy Route -> Python
+ */
+app.get('/system/status', async (req, res) => {
+  logger.info('Proxying system status request to Python backend');
+  try {
+    const { status, data } = await fetchJson(`${PYTHON_SERVICE_URL}/system/status`);
+    res.status(status).json(data);
+  } catch (err) {
+    logger.error('Failed to proxy system status request', { error: err.message });
+    res.status(500).json({ error: 'Failed to contact Python backend' });
+  }
+});
+
+/**
+ * 7. Complex Multi-Step Task Route
+ */
+app.get('/complex-task', async (req, res) => {
   logger.info('Received request for /complex-task endpoint');
   activeUsersGauge.set(Math.floor(Math.random() * 25) + 60);
 
   const tracer = api.trace.getTracer('node-app-tracer');
-  tracer.startActiveSpan('ComplexTaskFlow', async (parentSpan) => {
+
+  await tracer.startActiveSpan('ComplexTaskFlow', async (parentSpan) => {
     try {
-      // Step 1: Simulate user preference lookup (child span 1)
       const step1Start = Date.now();
       await tracer.startActiveSpan('FetchUserPreferences', async (childSpan1) => {
         logger.info('Step 1: Simulating database lookup for user preferences');
-        await delay(120); // simulate DB latency
+        await delay(120);
         childSpan1.setAttribute('db.system', 'postgresql');
         childSpan1.setAttribute('db.name', 'preferences_db');
         childSpan1.end();
@@ -261,11 +368,10 @@ app.get('/complex-task', (req, res) => {
         exemplarLabels: getActiveExemplar()
       });
 
-      // Step 2: Simulate heavy local computation (child span 2)
       const step2Start = Date.now();
       await tracer.startActiveSpan('ProcessHeavyPayload', async (childSpan2) => {
         logger.info('Step 2: Performing computational analysis on local payload');
-        await delay(80); // simulate computational latency
+        await delay(80);
         childSpan2.setAttribute('payload.size_bytes', 4096);
         childSpan2.end();
       });
@@ -276,69 +382,49 @@ app.get('/complex-task', (req, res) => {
         exemplarLabels: getActiveExemplar()
       });
 
-      // Step 3: Trigger downstream Flask heavy analysis
       logger.info('Step 3: Forwarding execution payload downstream to python-app');
-      const postData = JSON.stringify({ dataset_id: 8899, tasks: ['sentiment', 'summarize'] });
-      
-      const postReq = http.request({
-        hostname: 'python-app',
-        port: 5000,
-        path: '/heavy-analysis',
+      const { data: pythonAnalysis } = await fetchJson(`${PYTHON_SERVICE_URL}/heavy-analysis`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Content-Length': Buffer.byteLength(postData)
-        }
-      }, (response) => {
-        let body = '';
-        response.on('data', (chunk) => { body += chunk; });
-        response.on('end', () => {
-          logger.info('Downstream heavy analysis completed successfully', { python_response: body });
-          res.json({
-            status: 'completed',
-            node_steps: {
-              step1_db_duration_sec: step1Duration,
-              step2_compute_duration_sec: step2Duration
-            },
-            python_analysis: JSON.parse(body)
-          });
-          parentSpan.end();
-        });
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ dataset_id: 8899, tasks: ['sentiment', 'summarize'] })
       });
 
-      postReq.on('error', (err) => {
-        logger.error('Step 3 Failed: Downstream call error', { error: err.message });
-        parentSpan.recordException(err);
-        parentSpan.setStatus({ code: api.SpanStatusCode.ERROR, message: err.message });
-        res.status(500).json({ error: 'Downstream heavy-analysis call failed' });
-        parentSpan.end();
+      logger.info('Downstream heavy analysis completed successfully', { python_analysis: pythonAnalysis });
+
+      res.json({
+        status: 'completed',
+        node_steps: {
+          step1_db_duration_sec: step1Duration,
+          step2_compute_duration_sec: step2Duration
+        },
+        python_analysis: pythonAnalysis
       });
-
-      postReq.write(postData);
-      postReq.end();
-
     } catch (err) {
       logger.error('Complex task encountered unexpected failure', { error: err.message });
       parentSpan.recordException(err);
       parentSpan.setStatus({ code: api.SpanStatusCode.ERROR, message: err.message });
       res.status(500).json({ error: err.message });
+    } finally {
       parentSpan.end();
     }
   });
 });
 
-// 4. Sequential Multi-Step flow (with ID param)
-app.get('/multi-step/:id', (req, res) => {
+/**
+ * 8. Sequential Multi-Step Flow
+ */
+app.get('/multi-step/:id', async (req, res) => {
   const id = req.params.id;
   logger.info(`Starting multi-step execution flow for ID=${id}`);
 
   const tracer = api.trace.getTracer('node-app-tracer');
-  tracer.startActiveSpan('MultiStepFlow', async (parentSpan) => {
+
+  await tracer.startActiveSpan('MultiStepFlow', async (parentSpan) => {
     parentSpan.setAttribute('flow.id', id);
     try {
       logger.info(`Running stage A for flow ID=${id}`);
       await delay(50);
-      
+
       logger.info(`Running stage B for flow ID=${id}`);
       await delay(50);
 
@@ -347,49 +433,183 @@ app.get('/multi-step/:id', (req, res) => {
         stages: ['stage_A', 'stage_B'],
         status: 'success'
       });
-      parentSpan.end();
     } catch (err) {
       parentSpan.recordException(err);
       parentSpan.setStatus({ code: api.SpanStatusCode.ERROR, message: err.message });
       res.status(500).json({ error: err.message });
+    } finally {
       parentSpan.end();
     }
   });
 });
 
-// 5. User Database fetch Simulator
-app.get('/user/:id', (req, res) => {
-  const userId = req.params.id;
+/**
+ * 9. User Database Lookup Simulator
+ */
+app.get('/user/:id', async (req, res) => {
+  const userId = parseInt(req.params.id, 10);
+  if (isNaN(userId)) {
+    logger.warn(`Invalid user ID query parameter value: ${req.params.id}`);
+    return res.status(400).json({ error: 'User ID must be a valid integer' });
+  }
+
+  const cacheKey = `user:${userId}`;
+  if (isRedisConnected) {
+    try {
+      const cachedVal = await redisClient.get(cacheKey);
+      if (cachedVal) {
+        logger.info(`Redis cache hit for user ID=${userId}`);
+        return res.json(JSON.parse(cachedVal));
+      }
+    } catch (cacheErr) {
+      logger.warn(`Redis read error: ${cacheErr.message}`);
+    }
+  }
+
   logger.info(`Fetching user details for ID=${userId}`);
 
-  http.get(`http://python-app:5000/db/user/${userId}`, (response) => {
-    let data = '';
-    response.on('data', (chunk) => { data += chunk; });
-    response.on('end', () => {
-      if (response.statusCode === 404) {
-        logger.warn(`User with ID=${userId} not found in database`);
-        res.status(404).json(JSON.parse(data));
-      } else {
-        logger.info(`User details fetched successfully for ID=${userId}`);
-        res.json(JSON.parse(data));
+  try {
+    const { status, data } = await fetchJson(`${PYTHON_SERVICE_URL}/db/user/${userId}`);
+    if (status === 404) {
+      logger.warn(`User with ID=${userId} not found in database`);
+      return res.status(404).json(data);
+    }
+    logger.info(`User details fetched successfully for ID=${userId}`);
+    
+    if (status === 200 && isRedisConnected) {
+      try {
+        await redisClient.set(cacheKey, JSON.stringify({ ...data, cache: 'hit' }), {
+          EX: 300
+        });
+      } catch (cacheWriteErr) {
+        logger.warn(`Redis write error: ${cacheWriteErr.message}`);
       }
-    });
-  }).on('error', (err) => {
+    }
+    res.json({ ...data, cache: 'miss' });
+  } catch (err) {
     logger.error('Database connection simulated failure', { error: err.message });
     res.status(500).json({ error: 'Database service unavailable' });
+  }
+});
+
+/**
+ * 9b. Publish Asynchronous Task Event to Kafka Broker
+ */
+app.post('/kafka/publish', async (req, res) => {
+  const payload = req.body || {};
+  const topic = payload.topic || 'task-events';
+  const messageText = payload.message || 'Sample event payload from Node.js Gateway';
+
+  logger.info(`Publishing event to Kafka topic '${topic}'`);
+
+  if (!kafkaProducer) {
+    return res.status(503).json({
+      status: 'error',
+      message: 'Kafka Producer is not connected to broker'
+    });
+  }
+
+  try {
+    const record = {
+      event_id: `evt_${Date.now()}`,
+      payload: messageText,
+      timestamp: new Date().toISOString(),
+      source: 'node-app'
+    };
+
+    await kafkaProducer.send({
+      topic,
+      messages: [
+        {
+          key: record.event_id,
+          value: JSON.stringify(record)
+        }
+      ]
+    });
+
+    logger.info(`Event published to Kafka topic '${topic}' successfully.`);
+    res.json({
+      status: 'published',
+      topic,
+      event: record,
+      brokers: KAFKA_BROKERS
+    });
+  } catch (err) {
+    logger.error('Failed to publish event to Kafka', { error: err.message });
+    res.status(500).json({ status: 'error', message: err.message });
+  }
+});
+
+/**
+ * 9c. Go Prime Factorization Proxy Route -> Go Gin Service
+ */
+app.get('/calculate/primes/:num', async (req, res) => {
+  const num = parseInt(req.params.num, 10);
+  if (isNaN(num) || num <= 1) {
+    return res.status(400).json({ error: 'Parameter num must be a positive integer greater than 1' });
+  }
+
+  const tracer = api.trace.getTracer('node-app-tracer');
+  await tracer.startActiveSpan('ProxyPrimeFactorization', async (span) => {
+    span.setAttribute('calculation.type', 'prime_factors');
+    span.setAttribute('calculation.input', num);
+
+    try {
+      // 1. Verify token with auth-service downstream
+      const { status: authStatus, data: authData } = await fetchJson('http://auth-service:8082/verify', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ token: 'lgtm-secret-token' })
+      });
+
+      if (authStatus !== 200 || !authData.verified) {
+        logger.warn('Auth-service verification failed.');
+        span.setStatus({ code: api.SpanStatusCode.ERROR, message: 'Authentication verification failed' });
+        return res.status(401).json({ error: 'Auth-service verification failed' });
+      }
+
+      logger.info(`Proxying prime factorization request for N=${num} to Go backend`);
+      const { status, data } = await fetchJson(`http://go-app:8083/math/primes/${num}`);
+      
+      span.setAttribute('calculation.result', JSON.stringify(data.factors || []));
+      res.status(status).json(data);
+    } catch (err) {
+      span.recordException(err);
+      span.setStatus({ code: api.SpanStatusCode.ERROR, message: err.message });
+      logger.error('Failed to proxy prime factorization request to Go', { error: err.message });
+      res.status(500).json({ error: 'Failed to contact Go backend' });
+    } finally {
+      span.end();
+    }
   });
 });
 
-// 6. Intentional Error Endpoint (Logs ERROR and returns 500)
+/**
+ * 9d. Analytics Statistics Aggregator Route -> Python FastAPI
+ */
+app.get('/system/summary', async (req, res) => {
+  logger.info('System summary statistics requested from analytics-service');
+  try {
+    const { status, data } = await fetchJson('http://analytics-service:8086/metrics/summary');
+    res.status(status).json(data);
+  } catch (err) {
+    logger.error('Failed to fetch system summary statistics', { error: err.message });
+    res.status(500).json({ error: 'Failed to contact Analytics backend' });
+  }
+});
+
+/**
+ * 10. Intentional Error Route
+ */
 app.get('/error', (req, res) => {
   logger.error('Triggering simulated internal server error (500)');
+
   errorCounter.inc({
     labels: { route: '/error' },
     value: 1,
     exemplarLabels: getActiveExemplar()
   });
 
-  // Get active span and set error status
   const activeSpan = api.trace.getActiveSpan();
   if (activeSpan) {
     activeSpan.setStatus({
@@ -405,149 +625,16 @@ app.get('/error', (req, res) => {
   });
 });
 
-const swaggerDocument = {
-  openapi: "3.0.0",
-  info: {
-    title: "Node.js Express App API",
-    version: "1.0.0",
-    description: "API Documentation for Node.js Express App in LGTM Stack"
-  },
-  paths: {
-    "/": {
-      get: {
-        summary: "Root / Health Check",
-        responses: {
-          "200": { description: "Success" }
-        }
-      }
-    },
-    "/calculate/{num}": {
-      get: {
-        summary: "Calculate Fibonacci",
-        parameters: [
-          {
-            name: "num",
-            in: "path",
-            required: true,
-            schema: { type: "integer" },
-            description: "Number to calculate Fibonacci for"
-          }
-        ],
-        responses: {
-          "200": { description: "Success" }
-        }
-      }
-    },
-    "/complex-task": {
-      get: {
-        summary: "Run Nested Complex Task",
-        responses: {
-          "200": { description: "Success" }
-        }
-      }
-    },
-    "/multi-step/{id}": {
-      get: {
-        summary: "Run Sequential Steps",
-        parameters: [
-          {
-            name: "id",
-            in: "path",
-            required: true,
-            schema: { type: "string" },
-            description: "Flow identifier"
-          }
-        ],
-        responses: {
-          "200": { description: "Success" }
-        }
-      }
-    },
-    "/user/{id}": {
-      get: {
-        summary: "Simulate User Lookup",
-        parameters: [
-          {
-            name: "id",
-            in: "path",
-            required: true,
-            schema: { type: "string" },
-            description: "User ID"
-          }
-        ],
-        responses: {
-          "200": { description: "Success" },
-          "404": { description: "User Not Found" }
-        }
-      }
-    },
-    "/error": {
-      get: {
-        summary: "Simulate 500 Error",
-        responses: {
-          "500": { description: "Error" }
-        }
-      }
-    },
-    "/metrics": {
-      get: {
-        summary: "Expose Prometheus Metrics",
-        responses: {
-          "200": { description: "Success" }
-        }
-      }
-    }
-  }
-};
+// ============================================================================
+// DOCUMENTATION & METRICS ENDPOINTS
+// ============================================================================
 
 app.get('/swagger.json', (req, res) => {
   res.json(swaggerDocument);
 });
 
 app.get('/docs', (req, res) => {
-  res.send(`
-    <!DOCTYPE html>
-    <html lang="en">
-    <head>
-      <meta charset="UTF-8">
-      <title>Node.js App API Docs</title>
-      <link rel="stylesheet" type="text/css" href="https://unpkg.com/swagger-ui-dist@5/swagger-ui.css" />
-      <link rel="stylesheet" type="text/css" href="https://cdn.jsdelivr.net/npm/swagger-themes@1.4.3/themes/dark.min.css" />
-      <link rel="icon" type="image/png" href="https://unpkg.com/swagger-ui-dist@5/favicon-32x32.png" sizes="32x32" />
-      <style>
-        html { box-sizing: border-box; overflow-y: scroll; }
-        *, *:before, *:after { box-sizing: inherit; }
-        body { margin: 0; background: #1b1b1b; font-family: sans-serif; }
-        .swagger-ui .topbar { background-color: #111111; border-bottom: 2px solid #333333; }
-        .swagger-ui .info .title { color: #ffffff !important; }
-        .swagger-ui { background-color: #1b1b1b; }
-      </style>
-    </head>
-    <body>
-      <div id="swagger-ui"></div>
-      <script src="https://unpkg.com/swagger-ui-dist@5/swagger-ui-bundle.js" charset="UTF-8"></script>
-      <script src="https://unpkg.com/swagger-ui-dist@5/swagger-ui-standalone-preset.js" charset="UTF-8"></script>
-      <script>
-        window.onload = function() {
-          const ui = SwaggerUIBundle({
-            url: "/swagger.json",
-            dom_id: '#swagger-ui',
-            deepLinking: true,
-            presets: [
-              SwaggerUIBundle.presets.apis,
-              SwaggerUIStandalonePreset
-            ],
-            plugins: [
-              SwaggerUIBundle.plugins.DownloadUrl
-            ],
-            layout: "StandaloneLayout"
-          });
-          window.ui = ui;
-        };
-      </script>
-    </body>
-    </html>
-  `);
+  res.send(swaggerUiHtml);
 });
 
 app.get('/metrics', async (req, res) => {
@@ -558,6 +645,8 @@ app.get('/metrics', async (req, res) => {
     res.status(500).end(err);
   }
 });
+
+const PORT = process.env.PORT || 8081;
 
 app.listen(PORT, () => {
   logger.info(`Node.js app listening on port ${PORT}`);

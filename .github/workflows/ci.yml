@@ -1,0 +1,93 @@
+name: LGTM Stack CI Validation
+
+on:
+  push:
+    branches: [ main,  add/features]
+  pull_request:
+    branches: [ main, add/features ]
+
+jobs:
+  helm-validation:
+    name: Helm Chart Linting
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Codebase
+        uses: actions/checkout@v4
+
+      - name: Install Helm
+        uses: azure/setup-helm@v4
+        with:
+          version: 'v3.12.0'
+
+      - name: Lint Helm Charts
+        run: |
+          helm lint infrastructure/helm/lgtm-stack
+
+  node-validation:
+    name: Node.js Lint & Syntax
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Codebase
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Validate Gateway Syntax Check
+        run: |
+          cd apps/node-app
+          npm install --legacy-peer-deps
+          node --check app.js
+
+      - name: Validate Auth Service Syntax Check
+        run: |
+          cd apps/auth-service
+          npm install --legacy-peer-deps
+          node --check app.js
+
+  go-validation:
+    name: Go Build & Validate
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Codebase
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.21'
+
+      - name: Build Go App
+        run: |
+          cd apps/go-app
+          go mod tidy
+          go build -o go-app .
+
+      - name: Build DB Sync Service
+        run: |
+          cd apps/db-sync-service
+          go mod tidy
+          go build -o db-sync-service .
+
+  python-validation:
+    name: Python Lint & Syntax
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Codebase
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install Linting Packages
+        run: |
+          python -m pip install --upgrade pip
+          pip install flake8
+
+      - name: Check flake8 Python Code Style
+        run: |
+          flake8 apps/python-app/app.py apps/notification-service/app.py apps/analytics-service/app.py --count --select=E9,F63,F7,F82 --show-source --statistics

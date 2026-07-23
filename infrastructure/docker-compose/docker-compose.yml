@@ -1,0 +1,322 @@
+version: '3.8'
+
+services:
+  # 1. Visualization
+  grafana:
+    image: grafana/grafana:10.4.2
+    container_name: lgtm-grafana
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_AUTH_ANONYMOUS_ENABLED=false
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning
+    depends_on:
+      - mimir
+      - loki
+      - tempo
+    networks:
+      - lgtm
+
+  # 2. Metrics Backend
+  mimir:
+    image: grafana/mimir:2.12.0
+    container_name: lgtm-mimir
+    command: -config.file=/etc/mimir/mimir-config.yaml -target=all
+    ports:
+      - "9009:9009"
+    volumes:
+      - ./mimir:/etc/mimir
+    networks:
+      - lgtm
+
+  # 3. Logs Backend
+  loki:
+    image: grafana/loki:2.9.8
+    container_name: lgtm-loki
+    command: -config.file=/etc/loki/loki-config.yaml -target=all
+    ports:
+      - "3100:3100"
+    volumes:
+      - ./loki:/etc/loki
+    networks:
+      - lgtm
+
+  # 4. Traces Backend
+  tempo:
+    image: grafana/tempo:2.4.1
+    container_name: lgtm-tempo
+    command: -config.file=/etc/tempo/tempo-config.yaml -target=all
+    ports:
+      - "3200:3200"
+    volumes:
+      - ./tempo:/etc/tempo
+    networks:
+      - lgtm
+
+  # 5. Telemetry Collector (Alloy)
+  alloy:
+    image: grafana/alloy:v1.1.0
+    container_name: lgtm-alloy
+    command: run /etc/alloy/config.alloy --storage.path=/tmp/alloy/data --server.http.listen-addr=0.0.0.0:12345
+    ports:
+      - "12345:12345" # Alloy UI
+      - "4317:4317" # OTLP gRPC
+      - "4318:4318" # OTLP HTTP
+    volumes:
+      - ./alloy:/etc/alloy
+    environment:
+      - MIMIR_ENDPOINT=${MIMIR_ENDPOINT:-http://mimir:9009/otlp}
+      - MIMIR_REMOTE_WRITE_URL=${MIMIR_REMOTE_WRITE_URL:-http://mimir:9009/api/v1/push}
+      - LOKI_PUSH_URL=${LOKI_PUSH_URL:-http://loki:3100/loki/api/v1/push}
+      - TEMPO_ENDPOINT=${TEMPO_ENDPOINT:-tempo:4317}
+      - ALLOY_INTERNAL_METRICS_TARGET=${ALLOY_INTERNAL_METRICS_TARGET:-localhost:12345}
+      - NODE_APP_SCRAPE_TARGET=${NODE_APP_SCRAPE_TARGET:-node-app:8081}
+    depends_on:
+      - mimir
+      - loki
+      - tempo
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:12345/-/ready"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    networks:
+      - lgtm
+
+  # 6. Apache Kafka Message Broker (KRaft Mode)
+  kafka:
+    image: apache/kafka:latest
+    container_name: lgtm-kafka
+    ports:
+      - "9092:9092"
+      - "29092:29092"
+    environment:
+      KAFKA_NODE_ID: 1
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: 'CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT'
+      KAFKA_ADVERTISED_LISTENERS: 'PLAINTEXT://kafka:9092,PLAINTEXT_HOST://localhost:29092'
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_PROCESS_ROLES: 'broker,controller'
+      KAFKA_CONTROLLER_QUORUM_VOTERS: '1@kafka:9093'
+      KAFKA_LISTENERS: 'PLAINTEXT://0.0.0.0:9092,CONTROLLER://0.0.0.0:9093,PLAINTEXT_HOST://0.0.0.0:29092'
+      KAFKA_INTER_BROKER_LISTENER_NAME: 'PLAINTEXT'
+      KAFKA_CONTROLLER_LISTENER_NAMES: 'CONTROLLER'
+      KAFKA_LOG_DIRS: '/tmp/kraft-combined-logs'
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: 'true'
+    networks:
+      - lgtm
+
+  # 7. Python Application
+  python-app:
+    image: bhgaur/python-app-image:python-app
+    build:
+      context: ../../apps
+      dockerfile: python-app/Dockerfile
+    container_name: python-app
+    command: python app.py
+    ports:
+      - "5000:5000"
+    environment:
+      - PORT=5000
+      - ENABLE_OBSERVABILITY=${ENABLE_OBSERVABILITY:-true}
+      - KAFKA_BROKERS=kafka:9092
+      - POSTGRES_HOST=postgres
+      - POSTGRES_PORT=5432
+      - POSTGRES_DB=lgtmdb
+      - POSTGRES_USER=lgtmuser
+      - POSTGRES_PASSWORD=lgtmpass
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://alloy:4318
+      - OTEL_EXPORTER_OTLP_PROTOCOL=http/protobuf
+      - OTEL_SERVICE_NAME=python-app
+      - OTEL_LOGS_EXPORTER=otlp
+      - OTEL_METRICS_EXPORTER=otlp
+      - OTEL_TRACES_EXPORTER=otlp
+      - OTEL_METRIC_EXPORT_INTERVAL=10000
+      - OTEL_METRICS_EXEMPLAR_FILTER=always_on
+    depends_on:
+      - alloy
+      - postgres
+      - kafka
+    networks:
+      - lgtm
+
+  # 8. Node.js Application
+  node-app:
+    image: bhgaur/python-app-image:node-app
+    build:
+      context: ../../apps
+      dockerfile: node-app/Dockerfile
+    container_name: node-app
+    ports:
+      - "8081:8081"
+    environment:
+      - PORT=8081
+      - ENABLE_OBSERVABILITY=${ENABLE_OBSERVABILITY:-true}
+      - PYTHON_SERVICE_URL=http://python-app:5000
+      - KAFKA_BROKERS=kafka:9092
+      - REDIS_HOST=redis
+      - OTEL_SERVICE_NAME=node-app
+      - OTEL_METRICS_EXEMPLAR_FILTER=always_on
+    depends_on:
+      - python-app
+      - alloy
+      - kafka
+      - redis
+    networks:
+      - lgtm
+
+  # 8. PostgreSQL Database Infrastructure
+  postgres:
+    image: postgres:15-alpine
+    container_name: lgtm-postgres
+    ports:
+      - "5432:5432"
+    environment:
+      - POSTGRES_DB=lgtmdb
+      - POSTGRES_USER=lgtmuser
+      - POSTGRES_PASSWORD=lgtmpass
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U lgtmuser -d lgtmdb"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - lgtm
+
+  # 9. Redis Cache Layer
+  redis:
+    image: redis:7-alpine
+    container_name: lgtm-redis
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    networks:
+      - lgtm
+
+  # 10. Auth Service
+  auth-service:
+    image: bhgaur/python-app-image:auth-service
+    build:
+      context: ../../apps
+      dockerfile: auth-service/Dockerfile
+    container_name: auth-service
+    ports:
+      - "8082:8082"
+    environment:
+      - PORT=8082
+      - ENABLE_OBSERVABILITY=${ENABLE_OBSERVABILITY:-true}
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://alloy:4318
+      - OTEL_SERVICE_NAME=auth-service
+    depends_on:
+      - alloy
+    networks:
+      - lgtm
+
+  # 11. Go Gin App
+  go-app:
+    image: bhgaur/python-app-image:go-app
+    build:
+      context: ../../apps
+      dockerfile: go-app/Dockerfile
+    container_name: go-app
+    ports:
+      - "8083:8083"
+    environment:
+      - PORT=8083
+      - PYTHON_SERVICE_URL=http://python-app:5000
+      - OTEL_EXPORTER_OTLP_ENDPOINT=alloy:4318
+      - OTEL_SERVICE_NAME=go-app
+    depends_on:
+      - alloy
+      - python-app
+    networks:
+      - lgtm
+
+  # 12. Notification Service
+  notification-service:
+    image: bhgaur/python-app-image:notification-service
+    build:
+      context: ../../apps
+      dockerfile: notification-service/Dockerfile
+    container_name: notification-service
+    ports:
+      - "8084:8084"
+    environment:
+      - PORT=8084
+      - ENABLE_OBSERVABILITY=${ENABLE_OBSERVABILITY:-true}
+      - KAFKA_BROKERS=kafka:9092
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://alloy:4318
+      - OTEL_SERVICE_NAME=notification-service
+    depends_on:
+      - alloy
+      - kafka
+    networks:
+      - lgtm
+
+  # 13. DB Sync Service
+  db-sync-service:
+    image: bhgaur/python-app-image:db-sync-service
+    build:
+      context: ../../apps
+      dockerfile: db-sync-service/Dockerfile
+    container_name: db-sync-service
+    ports:
+      - "8085:8085"
+    environment:
+      - PORT=8085
+      - POSTGRES_HOST=postgres
+      - POSTGRES_PORT=5432
+      - POSTGRES_DB=lgtmdb
+      - POSTGRES_USER=lgtmuser
+      - POSTGRES_PASSWORD=lgtmpass
+      - OTEL_EXPORTER_OTLP_ENDPOINT=alloy:4318
+      - OTEL_SERVICE_NAME=db-sync-service
+    depends_on:
+      - alloy
+      - postgres
+    networks:
+      - lgtm
+
+  # 14. Analytics Service
+  analytics-service:
+    image: bhgaur/python-app-image:analytics-service
+    build:
+      context: ../../apps
+      dockerfile: analytics-service/Dockerfile
+    container_name: analytics-service
+    ports:
+      - "8086:8086"
+    environment:
+      - PORT=8086
+      - ENABLE_OBSERVABILITY=${ENABLE_OBSERVABILITY:-true}
+      - POSTGRES_HOST=postgres
+      - POSTGRES_PORT=5432
+      - POSTGRES_DB=lgtmdb
+      - POSTGRES_USER=lgtmuser
+      - POSTGRES_PASSWORD=lgtmpass
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://alloy:4318
+      - OTEL_SERVICE_NAME=analytics-service
+    depends_on:
+      - alloy
+      - postgres
+    networks:
+      - lgtm
+
+networks:
+  lgtm:
+    name: lgtm-network
+    driver: bridge
+
+volumes:
+  postgres_data:

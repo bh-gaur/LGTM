@@ -2,13 +2,15 @@ FROM node:20-slim
 
 WORKDIR /app
 
-COPY package.json .
+COPY common ./common
+COPY node-app ./node-app
 
-RUN npm install
+WORKDIR /app/node-app
 
-COPY app.js instrumentation.js ./
+RUN npm install --legacy-peer-deps && ln -s /app/node-app/node_modules /app/node_modules
+
+ENV NODE_PATH=/app/node-app/node_modules
 
 EXPOSE 8081
 
-# Command requires loading the instrumentation script first
 CMD ["npm", "start"]

@@ -2,14 +2,16 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
-COPY requirements.txt .
+COPY python-app/requirements.txt ./python-app/
 
-RUN pip install --no-cache-dir -r requirements.txt && \
+RUN pip install --no-cache-dir -r ./python-app/requirements.txt && \
     opentelemetry-bootstrap --action=install
 
-COPY app.py .
+COPY common ./common
+COPY python-app/ ./python-app/
+
+WORKDIR /app/python-app
 
 EXPOSE 5000
 
-# We use opentelemetry-instrument command wrapper to automatically configure trace/metric generation
-CMD ["opentelemetry-instrument", "python", "app.py"]
+CMD ["gunicorn", "--workers=4", "--threads=2", "--worker-class=gthread", "--bind=0.0.0.0:5000", "--timeout=120", "app:app"]
