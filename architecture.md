@@ -15,30 +15,36 @@ graph TD
     subgraph Microservice Mesh
         NodeApp -->|Check Cache| Redis[(Redis Cache :6379)]
         NodeApp -->|JWT Verify| AuthService[auth-service :8082]
-        NodeApp -->|Prime Factors Proxy| GoApp[go-app :8083]
-        NodeApp -->|System Stats Proxy| Analytics[analytics-service :8086]
-        NodeApp -->|Async Publish event| Kafka[Apache Kafka :9092]
+        NodeApp -->|Deep Trace Trigger| Rec[recommendation-service :5001]
+        Rec -->|HTTP Downstream| GoApp[go-app :8083]
+        GoApp -->|HTTP Downstream| Inv[inventory-service :8087]
+        Inv -->|HTTP Downstream| Analytics[analytics-service :8086]
+        Analytics -->|HTTP Downstream| Audit[audit-service :5002]
+        Audit -->|HTTP Downstream| PyApp[python-app :5000]
+        PyApp -->|HTTP Downstream| DbSync[db-sync-service :8085]
         
-        GoApp -->|Downstream Analyze| PyApp[Python App :5000]
+        PyApp -.->|Async Publish event| Kafka[Apache Kafka :9092]
         Kafka -->|Consume task-events| NotifService[notification-service :8084]
+        Kafka -->|Consume task-events| AlertService[alerting-service :8088]
         
-        PyApp -->|SQL Query| Postgres[(PostgreSQL DB :5432)]
-        Analytics -->|SQL Query stats| Postgres
-        DbSync[db-sync-service :8085] -->|Background DB Audit| Postgres
+        ReportService[reporting-service :5003] -.->|Diagnostics| Postgres[(PostgreSQL DB :5432)]
     end
 
     %% Telemetry Collection Layer
     subgraph Grafana Telemetry Agent
         Alloy[Grafana Alloy :12345]
-        NodeApp -->|OTLP Traces/Logs| Alloy
-        AuthService -->|OTLP Traces/Logs| Alloy
-        GoApp -->|OTLP Traces/Logs| Alloy
-        PyApp -->|OTLP Traces/Logs| Alloy
-        NotifService -->|OTLP Traces/Logs| Alloy
-        Analytics -->|OTLP Traces/Logs| Alloy
-        
-        NodeApp -->|Scrape metrics| Alloy
-        AuthService -->|Scrape metrics| Alloy
+        NodeApp -->|OTLP| Alloy
+        AuthService -->|OTLP| Alloy
+        Rec -->|OTLP| Alloy
+        GoApp -->|OTLP| Alloy
+        Inv -->|OTLP| Alloy
+        Analytics -->|OTLP| Alloy
+        Audit -->|OTLP| Alloy
+        PyApp -->|OTLP| Alloy
+        DbSync -->|OTLP| Alloy
+        NotifService -->|OTLP| Alloy
+        AlertService -->|OTLP| Alloy
+        ReportService -->|OTLP| Alloy
     end
 
     %% Storage Backends
@@ -61,11 +67,16 @@ graph TD
     %% Color Styling
     style NodeApp fill:#5b9dfa,stroke:#3b82f6,stroke-width:2px,color:#fff
     style AuthService fill:#3b82f6,stroke:#1d4ed8,stroke-width:2px,color:#fff
+    style Rec fill:#6366f1,stroke:#4f46e5,stroke-width:2px,color:#fff
     style GoApp fill:#10b981,stroke:#047857,stroke-width:2px,color:#fff
-    style PyApp fill:#34d399,stroke:#10b981,stroke-width:2px,color:#fff
-    style NotifService fill:#f59e0b,stroke:#d97706,stroke-width:2px,color:#fff
+    style Inv fill:#059669,stroke:#047857,stroke-width:2px,color:#fff
     style Analytics fill:#84cc16,stroke:#4d7c0f,stroke-width:2px,color:#fff
+    style Audit fill:#a3e635,stroke:#4d7c0f,stroke-width:2px,color:#fff
+    style PyApp fill:#34d399,stroke:#10b981,stroke-width:2px,color:#fff
     style DbSync fill:#06b6d4,stroke:#0891b2,stroke-width:2px,color:#fff
+    style NotifService fill:#f59e0b,stroke:#d97706,stroke-width:2px,color:#fff
+    style AlertService fill:#d97706,stroke:#b45309,stroke-width:2px,color:#fff
+    style ReportService fill:#64748b,stroke:#475569,stroke-width:2px,color:#fff
     style Redis fill:#ef4444,stroke:#dc2626,stroke-width:2px,color:#fff
     style Kafka fill:#f97316,stroke:#ea580c,stroke-width:2px,color:#fff
     style Postgres fill:#38bdf8,stroke:#0ea5e9,stroke-width:2px,color:#fff
@@ -93,18 +104,30 @@ graph TD
 3. **Write Failures & Retries**: On database failure, the consumer attempts writes up to 3 times (1-second delay between tries).
 4. **Dead-Letter Queue (DLQ) Redirect**: If all 3 attempts fail, the consumer serializes the payload with error details and publishes it to the `task-events-dlq` topic.
 
+### Scenario C: 12-Service Nested Downstream Trace Pipeline
+1. **Trigger**: User calls `/calculate/deep/{num}`.
+2. **Auth Verification**: Gateway delegates token checking to `auth-service`.
+3. **Downstream Cascade**: Gateway calls `recommendation-service` -> `go-app` -> `inventory-service` -> `analytics-service` -> `audit-service` -> `python-app` -> `db-sync-service` sequentially, propagating OTel headers.
+4. **Asynchronous Dispatch**: `python-app` publishes a finalized payload to `task-events`.
+5. **Parallel Consumption**: Both `notification-service` and `alerting-service` independently consume the event to process alerts, registering separate spans linked under the root trace ID.
+
 ---
 
 ## 📦 Component Breakdown
 
 ### 1. Application Layer
-* **Node.js Gateway (`apps/node-app`)**: Express-based portal. Serves the Three.js 3D WebGL topology dashboard and proxies compute, search, and message actions downstream. Hardened with API key authentication middleware.
-* **Python Analytics (`apps/python-app`)**: Flask-based heavy numeric computation engine, running multi-threaded Gunicorn workers. Leverages Alembic migration scripts for database setups.
+* **Node.js Gateway (`apps/node-app`)**: Hapi.js-based portal. Serves the Three.js 3D WebGL topology dashboard and proxies compute, search, and message actions downstream. Hardened with API key authentication request extension.
+* **Python Analytics (`apps/python-app`)**: Flask-based heavy numeric computation engine, running multi-threaded Gunicorn workers. Leverages Alembic migration scripts for database setups. Also acts as the deep pipeline finalize handler.
 * **`auth-service` (`apps/auth-service`)**: Node.js microservice validating API signatures and token payloads.
+* **`recommendation-service` (`apps/python-app` run as role)**: Python Flask recommendation backend.
 * **`go-app` (`apps/go-app`)**: High-performance Go microservice calculating prime factorizations.
-* **`notification-service` (`apps/notification-service`)**: Python FastAPI message consumer capturing and processing Kafka stream events.
-* **`db-sync-service` (`apps/db-sync-service`)**: Go background agent auditing PG tables structures.
+* **`inventory-service` (`apps/go-app` run as role)**: Go warehouse warehouse calculation service.
 * **`analytics-service` (`apps/analytics-service`)**: Python FastAPI database stats analytics service.
+* **`audit-service` (`apps/python-app` run as role)**: Python Flask compliance auditor.
+* **`notification-service` (`apps/notification-service`)**: Python FastAPI async SMS notifier service.
+* **`alerting-service` (`apps/notification-service` run as role)**: Python FastAPI async Pager notifier service.
+* **`reporting-service` (`apps/python-app` run as role)**: Python Flask stats reporter.
+* **`db-sync-service` (`apps/db-sync-service`)**: Go background agent auditing PG tables structures.
 * **Shared SDKs (`apps/common`)**: Shared OpenTelemetry hooks (`observability.js`, `obs.py`) loaded dynamically based on the global `ENABLE_OBSERVABILITY` flag.
 
 ### 2. Infrastructure Layer

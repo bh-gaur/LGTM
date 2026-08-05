@@ -12,11 +12,12 @@ This document describes all API endpoints, background services, and metric-to-tr
 | :--- | :--- | :--- | :--- | :--- |
 | `/calculate/:num` | `GET` | Computes Fibonacci sum; stores results in Redis. | `node-app` ➔ `auth-service` ➔ `python-app` | `calculation_requests_total`, `node_active_users` |
 | `/calculate/primes/:num` | `GET` | Computes prime factorization of a number. | `node-app` ➔ `auth-service` ➔ `go-app` ➔ `python-app` | `calculation_requests_total` |
+| `/calculate/deep/:num` | `GET` | 12-Service nested downstream cascade transaction. | `node-app` ➔ `auth-service` ➔ `recommendation-service` ➔ `go-app` ➔ `inventory-service` ➔ `analytics-service` ➔ `audit-service` ➔ `python-app` ➔ `db-sync-service` & Kafka ➔ `notification-service` & `alerting-service` | `calculation_requests_total` |
 | `/system/summary` | `GET` | Fetches consolidated DB table stats. | `node-app` ➔ `analytics-service` | N/A (Gateway Proxy) |
 | `/complex-task` | `GET` | Sequential multi-step flow with database simulators. | `node-app` ➔ `python-app` | `node_task_duration_seconds` (Histogram), `node_active_users` |
 | `/multi-step/:id` | `GET` | Basic sequential timer stages check. | `node-app` (Internal Auto-Instrumented Spans) | N/A |
 | `/user/:id` | `GET` | Fetches user details; caches records in Redis. | `node-app` ➔ `python-app` (Flask DB API) | `node_active_users` (on cache hit) |
-| `/kafka/publish` | `POST` | Publishes event payloads to the Kafka broker. | `node-app` ➔ Kafka Message ➔ `notification-service` | N/A |
+| `/kafka/publish` | `POST` | Publishes event payloads to the Kafka broker. | `node-app` ➔ Kafka Message ➔ `notification-service` & `alerting-service` | N/A |
 | `/error` | `GET` | Intentional 500 error route for telemetry testing. | `node-app` (Root Error Span) | `error_requests_total` |
 
 ---
@@ -26,11 +27,21 @@ This document describes all API endpoints, background services, and metric-to-tr
 | Service | Endpoint | Method | Description |
 | :--- | :--- | :--- | :--- |
 | **`auth-service`** (Node.js) | `/verify` | `POST` | Validates authentication tokens dynamically. |
+| **`recommendation-service`** (Python/Flask) | `/recommend` | `GET` | Main entry downstream of deep transaction cascade. |
 | **`go-app`** (Go / Gin) | `/math/primes/:num` | `GET` | Computes factors and sends summary to `python-app`. |
-| **`python-app`** (Flask) | `/analyze` | `POST` | Analyzes Fibonacci / Prime numerical traits. |
+| | `/math/deep-primes/:num` | `GET` | Multi-hop Go factors compute route calling `inventory-service`. |
+| **`inventory-service`** (Go / Gin) | `/inventory/check/:num` | `GET` | Relational stats gateway proxy route calling `analytics-service`. |
+| **`analytics-service`** (Python/FastAPI) | `/analytics/compute-deep` | `POST` | Database query aggregator calling `audit-service`. |
+| | `/metrics/summary` | `GET` | Serves PostgreSQL system statistics. |
+| **`audit-service`** (Python/Flask) | `/audit/log` | `POST` | Compliance verification log interceptor calling `python-app`. |
+| **`python-app`** (Python/Flask) | `/analyze` | `POST` | Analyzes Fibonacci / Prime numerical traits. |
 | | `/db/user/:user_id` | `GET` | Resolves user profiles from PostgreSQL catalog. |
 | | `/text/analyze` | `POST` | Runs mock text sentiment analysis. |
-| **`analytics-service`** (FastAPI)| `/metrics/summary` | `GET` | Serves PostgreSQL system statistics. |
+| | `/python/finalize-deep` | `POST` | Main DB writer event log transaction and Kafka producer. |
+| **`db-sync-service`** (Go) | `/sync/trigger` | `POST` | Instantly runs DB tables integrity checks. |
+| **`notification-service`** (Python/FastAPI) | Kafka events loop | N/A | Subscribes to `task-events` with dynamic group notifier. |
+| **`alerting-service`** (Python/FastAPI) | Kafka events loop | N/A | Parallel alerts broker listener routing metrics. |
+| **`reporting-service`** (Python/Flask) | `/report/summary` | `GET` | Retrieves aggregate telemetry stats. |
 
 ---
 
@@ -81,4 +92,10 @@ curl -H "x-api-key: lgtm-secret-key" http://localhost:8081/user/1
 curl -X POST -H "x-api-key: lgtm-secret-key" -H "Content-Type: application/json" \
   -d '{"message": "Verify distributed trace linkage"}' \
   http://localhost:8081/kafka/publish
+```
+
+### Case F: Trigger 12-Service Nested Downstream Trace Pipeline (Deep Trace)
+```bash
+# Triggers synchronous cascade and parallel asynchronous telemetry across all 12 services
+curl -H "x-api-key: lgtm-secret-key" http://localhost:8081/calculate/deep/20
 ```

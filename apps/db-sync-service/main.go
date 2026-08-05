@@ -149,6 +149,24 @@ func main() {
 	if port == "" {
 		port = "8085"
 	}
+	http.HandleFunc("/sync/trigger", func(w http.ResponseWriter, r *http.Request) {
+		ctx := otel.GetTextMapPropagator().Extract(r.Context(), propagation.HeaderCarrier(r.Header))
+		ctx, span := tracer.Start(ctx, "ManualSyncTrigger")
+		defer span.End()
+
+		var count int
+		err := db.QueryRowContext(ctx, "SELECT count(*) FROM pg_tables WHERE schemaname = 'public';").Scan(&count)
+		if err != nil {
+			span.RecordError(err)
+			w.WriteHeader(http.StatusInternalServerError)
+			fmt.Fprintf(w, `{"error":"%s"}`, err.Error())
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprintf(w, `{"status":"sync_success","tables_count":%d,"service":"db-sync-service"}`, count)
+	})
+
 	http.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		fmt.Fprintf(w, `{"status":"healthy","service":"db-sync-service"}`)

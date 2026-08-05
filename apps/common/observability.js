@@ -25,6 +25,19 @@ if (isObservabilityEnabled) {
 
   const { W3CTraceContextPropagator } = require('@opentelemetry/core');
 
+  // const BAGGAGE_KEYS = ['test1', 'test2', 'test3'];
+
+  // // --- baggage utils ---
+  
+  // const applyBaggageToSpan = (span, ctx = api.context.active()) => {
+  //   const baggage = api.propagation.getBaggage(ctx);
+  //   if (!baggage) return;
+  //   for (const key of BAGGAGE_KEYS) {
+  //     const value = baggage.getEntry(key)?.value;
+  //     if (value) span.setAttribute(key, value);
+  //   }
+  // };
+
   // 1. Configure OpenTelemetry LoggerProvider (Batch processing for high performance)
   const loggerProvider = new LoggerProvider({
     processors: [

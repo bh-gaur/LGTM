@@ -21,7 +21,7 @@ This document serves as the master submission dossier for the **Unified LGTM Obs
 This project implements a production-grade, distributed microservice grid orchestrated using **Docker Compose** and **Kubernetes (Helm)**, fully instrumented with the **Grafana LGTM (Loki, Grafana, Tempo, Mimir) Stack** and **Grafana Alloy**.
 
 ### Key Deliverables Completed:
-* **Expanded to 7 Polyglot Services**: Created and wired Node.js (Gateway, Auth), Go (Prime calculation, Database sync), and Python (Analytics, Event consumer, Text processing) services.
+* **Expanded to 12 Polyglot Services**: Created and wired Node.js Hapi Gateway, Express Auth, Go Prime calculation, Go Database sync, Go Inventory service, Python Analytics, Python Audit, Python Notification, Python Alerting, Python Reporting, and Python database writer services.
 * **Unified TraceContext Context Propagation**: Context flows seamlessly across HTTP Rest routes and Kafka messaging boundaries using W3C standards.
 * **OpenMetrics Exemplars Integration**: Correlates Mimir metric spikes directly to Tempo trace timelines.
 * **Auto-Instrumentation Orders Resolved**: Corrected module initialization ordering to enable comprehensive telemetry hooks for databases, caching, and routers.
@@ -42,47 +42,54 @@ The system relies on an API Gateway pattern where `node-app` routes external req
                           +-----------------+-----------------+
                                             |
                                             v
-                          +-----------------------------------+
-                          |   Node.js API Gateway (Express)   | (Port 8081)
-                          +----+------------+------------+----+
-                               |            |            |
-         +---------------------+            |            +-----------------------+
-         | W3C Trace context                | HTTP REST                          | Kafka Event
-         v                                  v                                    v
-+------------------+              +------------------+                  +------------------+
-|   auth-service   | (Port 8082)  |      go-app      | (Port 8083)      |  lgtm-kafka      | (Port 9092)
-|  (Node Express)  |              |     (Go/Gin)     |                  | (Message Broker) |
-+------------------+              +--------+---------+                  +--------+---------+
-                                           |                                     |
-                                           | HTTP REST / W3C                     | Event Consumer
-                                           v                                     v
-+------------------+              +--------+---------+                  +--------+---------+
-| analytics-service| (Port 8086)  |    python-app    | (Port 5000)      | notification-serv| (Port 8084)
-| (Python/FastAPI) |              |  (Python/Flask)  |                  | (Python/FastAPI) |
-+--------+---------+              +--------+---------+                  +------------------+
-         |                                 |
-         | SQL Queries                     | SQL Queries
-         +-----------------+---------------+
-                           v
-                  +--------+---------+
-                  |  lgtm-postgres   | (Port 5432)
-                  |   (PostgreSQL)   |
-                  +--------+---------+
-                           |
-                           v
-                  +--------+---------+
-                  | db-sync-service  | (Background DB Audit Loop)
-                  |    (Go Lang)     |
-                  +------------------+
+                           +-----------------------------------+
+                           |   Node.js API Gateway (Hapi.js)   | (Port 8081)
+                           +----+------------+------------+----+
+                                |            |            |
+         +----------------------+            |            +-----------------------+
+         | JWT Verification                  | HTTP REST (Deep Pipeline)         | Kafka Event
+         v                                   v                                    v
++------------------+               +-------------------+                 +------------------+
+|   auth-service   | (Port 8082)   | recommendation-srv| (Port 5001)     |    lgtm-kafka    | (Port 9092)
+|  (Node Express)  |               |  (Python Flask)   |                 | (Message Broker) |
++------------------+               +---------+---------+                 +--------+---------+
+                                             |                                    |
+                                             | HTTP REST                          | Event Consumer
+                                             v                                    v
++------------------+               +---------+---------+                 +--------+---------+
+|    reporting-srv | (Port 5003)   |      go-app       | (Port 8083)     | notification-serv| (Port 8084)
+|  (Python Flask)  |               |     (Go Gin)      |                 | (Python FastAPI) |
++------------------+               +---------+---------+                 +--------+---------+
+                                             |                                    |
+                                             | HTTP REST                          | Event Consumer
+                                             v                                    v
++------------------+               +---------+---------+                 +--------+---------+
+|  db-sync-service | (Port 8085)   | inventory-service | (Port 8087)     | alerting-service | (Port 8088)
+|    (Go Lang)     |               |     (Go Gin)      |                 | (Python FastAPI) |
++------------------+               +---------+---------+                 +--------+---------+
+                                             |
+                                             | HTTP REST
+                                             v
++------------------+               +---------+---------+
+|    python-app    | (Port 5000)   | analytics-service | (Port 8086)
+|  (Python Flask)  |               | (Python FastAPI)  |
++--------+---------+               +--------+---------+
+         |                                   |
+         | HTTP REST                         | HTTP REST
+         v                                   v
++--------+---------+               +---------+---------+
+|  audit-service   | (Port 5002)   |  lgtm-postgres    | (Port 5432)
+|  (Python Flask)  |               |   (PostgreSQL)    |
++------------------+               +-------------------+
 ```
 
 ---
 
 ## 3. Application Component Specifications
 
-Below are details of the 7 microservices comprising the polyglot mesh:
+Below are details of the 12 microservices comprising the polyglot mesh:
 
-### 1. `node-app` (Node.js Express Gateway) — Port `8081`
+### 1. `node-app` (Node.js Hapi.js Gateway) — Port `8081`
 * **Role**: Serves the 3D topology UI dashboard, manages public Swagger docs, and routes REST operations downstream.
 * **Integrations**: Redis Client (caching), KafkaJS Producer (event publishing).
 * **Metrics**: `calculation_requests_total` (with exemplars), `error_requests_total` (with exemplars), `node_task_duration_seconds` (histogram).
@@ -90,28 +97,47 @@ Below are details of the 7 microservices comprising the polyglot mesh:
 ### 2. `auth-service` (Node.js Express) — Port `8082`
 * **Role**: Mock JWT authentication check service downstream of `node-app`.
 * **Integrations**: Prom-client `/metrics` scraper hook.
-* **Telemetry**: Native Winston logging formatter correlating trace contexts.
+* **Telemetry**: Winston logger correlating trace contexts.
 
-### 3. `go-app` (Go / Gin) — Port `8083`
+### 3. `recommendation-service` (Python / Flask) — Port `5001`
+* **Role**: Recommendation backend proxying requests downstream.
+* **Integrations**: Dynamically instrumented Flask app with context propagation.
+
+### 4. `go-app` (Go / Gin) — Port `8083`
 * **Role**: High-performance mathematical backend that computes prime factorizations.
 * **Integrations**: `otelgin` HTTP Router middleware, OTel OTLP HTTP trace exporter.
-* **Data Flow**: Computes factor vectors and sends the sum downstream to `python-app` for analysis.
 
-### 4. `notification-service` (Python / FastAPI) — Port `8084`
-* **Role**: Asynchronous consumer processing message alerts sent to Kafka's `task-events` topic.
-* **Integrations**: `KafkaConsumer` wrapper extracting W3C `traceparent` headers manually to link asynchronous consumer spans to publisher spans.
-
-### 5. `db-sync-service` (Go) — Port `8085`
-* **Role**: Audits database schema availability.
-* **Integrations**: Periodically triggers background database queries to look up active tables in PostgreSQL every 30 seconds.
+### 5. `inventory-service` (Go / Gin) — Port `8087`
+* **Role**: Go-based warehouse checking service.
+* **Integrations**: Propagated HTTP middleware checking logic metrics.
 
 ### 6. `analytics-service` (Python / FastAPI) — Port `8086`
-* **Role**: Database summary aggregator.
+* **Role**: Database summary statistics aggregator.
 * **Integrations**: Directly queries PostgreSQL records count and displays `/metrics/summary` telemetry.
 
-### 7. `python-app` (Python / Flask) — Port `5000`
-* **Role**: Downstream analytical computing engine (provides factor parsing and database entry reads).
-* **Integrations**: SQLAlchemy (relational database queries), Alembic (database schema migrations).
+### 7. `audit-service` (Python / Flask) — Port `5002`
+* **Role**: Transaction compliance logger.
+* **Integrations**: Cascades execution flow downstream to `python-app` for database storage.
+
+### 8. `python-app` (Python / Flask) — Port `5000`
+* **Role**: Heavy numeric computation database writer engine.
+* **Integrations**: Alembic migrations, PostgreSQL writing, Kafka publisher.
+
+### 9. `db-sync-service` (Go) — Port `8085`
+* **Role**: Audits database schema availability.
+* **Integrations**: Triggered synchronously by python-app to perform database health queries.
+
+### 10. `notification-service` (Python / FastAPI) — Port `8084`
+* **Role**: Asynchronous consumer processing message alerts sent to Kafka's `task-events` topic.
+* **Integrations**: `KafkaConsumer` wrapper extracting W3C `traceparent` headers manually.
+
+### 11. `alerting-service` (Python / FastAPI) — Port `8088`
+* **Role**: Async alerting service consuming from Kafka's `task-events` topic in parallel with notification-service.
+* **Integrations**: Dynamic consumer groups enabling duplicate event receipt.
+
+### 12. `reporting-service` (Python / Flask) — Port `5003`
+* **Role**: Stats reporting backend.
+* **Integrations**: PostgreSQL db connector./summary` telemetry.
 
 ---
 
@@ -172,7 +198,7 @@ The system is fully portable and can be deployed locally or onto cloud Kubernete
 
 ### 1. Local Orchestration (Docker Compose)
 * Defined under [docker-compose.yml](file:///Users/vishnu/learning/b_github/z_etc/LGTM/infrastructure/docker-compose/docker-compose.yml).
-* Deploys all 7 application microservices and the 7 infrastructure resources (`loki`, `mimir`, `tempo`, `alloy`, `grafana`, `postgres`, `kafka`).
+* Deploys all 12 application microservices and the 7 infrastructure resources (`loki`, `mimir`, `tempo`, `alloy`, `grafana`, `postgres`, `kafka`).
 
 ### 2. Kubernetes Helm Packaging
 * Packaged under `infrastructure/helm/lgtm-stack`.
@@ -194,7 +220,7 @@ We validated the pipeline end-to-end to verify that traces propagate and correla
 * **Command**: `curl -H "x-api-key: lgtm-secret-key" http://localhost:8081/calculate/primes/840`
 * **Tempo Result (Trace ID: `947b81e5150dd81f648c27cb029abae6`)**:
   ```
-  [node-app] ProxyPrimeFactorization (Express Route)
+  [node-app] ProxyPrimeFactorization (Hapi Route)
    ├── [auth-service] POST /verify (Token validation)
    └── [go-app] GET /math/primes/840 (Gin Router)
         └── [go-app] CallPythonAnalyze (Client Outbound Request)
@@ -205,7 +231,7 @@ We validated the pipeline end-to-end to verify that traces propagate and correla
 * **Command**: `curl -X POST -H "x-api-key: lgtm-secret-key" -d '{"message": "Hello Kafka!"}' http://localhost:8081/kafka/publish`
 * **Tempo Result (Trace ID: `a0922c07e1c0f8d841dba401c9308cd2`)**:
   ```
-  [node-app] POST /kafka/publish (Express Route)
+  [node-app] POST /kafka/publish (Hapi Route)
    └── [node-app] send task-events (Kafka Producer Span)
         └── [notification-service] ProcessNotificationEvent (FastAPI Consumer Span)
   ```
@@ -217,6 +243,24 @@ We validated the pipeline end-to-end to verify that traces propagate and correla
   calculation_requests_total{number="29"} 1 # {trace_id="32a5b28aa38909c998ec9e13b43c291e",span_id="7aca3666ee5ca60a"} 1 1784738252.243
   ```
 
+### Test Case D: 12-Service Nested Downstream Trace Pipeline (Deep Trace)
+* **Command**: `curl -H "x-api-key: lgtm-secret-key" http://localhost:8081/calculate/deep/20`
+* **Tempo Result (Trace ID: `30ee236c735a34b9e2ae95424baff9b4`)**:
+  ```
+  [node-app] ProxyDeepOrchestration (Hapi Route)
+   ├── [auth-service] POST /verify (Token validation)
+   └── [recommendation-service] GET /recommend?num=20 (Flask)
+        └── [go-app] GET /math/deep-primes/20 (Gin)
+             └── [inventory-service] GET /inventory/check/9 (Gin)
+                  └── [analytics-service] POST /analytics/compute-deep (FastAPI)
+                       └── [audit-service] POST /audit/log (Flask)
+                            └── [python-app] POST /python/finalize-deep (Flask)
+                                 ├── [db-sync-service] POST /sync/trigger (ManualSyncTrigger)
+                                 ├── [python-app] send task-events (Kafka Producer)
+                                 │    ├── [notification-service] ProcessNotificationEvent (Consumer Group 1)
+                                 │    └── [alerting-service] ProcessNotificationEvent (Consumer Group 2)
+  ```
+
 ---
 ## 7. Production Hardening, Resiliency & CI Validation
 
@@ -224,7 +268,7 @@ Several architectures were configured to ensure system reliability:
 1. **Alembic DB Migrations**: DB schemas are programmatically created on startup.
 2. **Kafka DLQ redirect**: The Python consumer writes failed events to a Dead-Letter Queue after 3 failed attempts.
 3. **Redis Cache Bypass & Hit Handling**: Direct caching intercepts redundant DB queries.
-4. **GitHub Actions Workflow validation**: [ci.yml](file:///Users/vishnu/learning/b_github/z_etc/LGTM/.github/workflows/ci.yml) validates Syntax Checks on all 7 Node.js, Go, and Python services on push/pull requests.
+4. **GitHub Actions Workflow validation**: [ci.yml](file:///Users/vishnu/learning/b_github/z_etc/LGTM/.github/workflows/ci.yml) validates Syntax Checks on all Node.js, Go, and Python services on push/pull requests.
 
 ---
 
@@ -272,8 +316,15 @@ This section outlines how engineers, SREs, and developers leverage this telemetr
 * **Troubleshooting Steps**:
   1. **Compare Requests**: Query `/user/42` twice in sequence.
   2. **Inspect Trace 1 (Cold Cache)**:
-     - Tempo shows the Express server span `/user/:id` query.
+     - Tempo shows the Hapi server span `/user/{id}` query.
      - Spans reveal a Redis `GET` client call (Cache Miss), followed by an outbound HTTP call to `python-app:5000/db/user/42` which executes SQL queries, followed by a Redis `SET`.
   3. **Inspect Trace 2 (Hot Cache)**:
-     - Tempo shows the server span `/user/:id` query, containing a single Redis `GET` span taking **`1.4ms`** and returning instantly. No database calls or downstream HTTP queries were made.
+     - Tempo shows the server span `/user/{id}` query, containing a single Redis `GET` span taking **`1.4ms`** and returning instantly. No database calls or downstream HTTP queries were made.
   4. **Resolution**: Validates that cache eviction and Redis caching TTL are correctly configured and working, preventing database load.
+
+---
+
+## 🔮 9. Future / Post-Project Roadmap
+
+As a next-step enhancement for the observability pipeline, the team has scheduled the following task:
+* **OTLP Collector Migration**: After this project, the telemetry ingestion infrastructure will migrate from **Grafana Alloy** to the standard upstream CNCF **OpenTelemetry (OTLP) Collector** to utilize open standard processing pipelines.

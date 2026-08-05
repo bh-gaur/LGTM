@@ -50,3 +50,7 @@ datasources:
             value: 'job'
         filterByTraceID: true
         filterBySpanID: false
+      serviceMap:
+        datasourceUid: 'prometheus'
+      nodeGraph:
+        enabled: true

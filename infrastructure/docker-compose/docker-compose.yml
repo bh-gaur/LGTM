@@ -313,6 +313,149 @@ services:
     networks:
       - lgtm
 
+  # 15. Recommendation Service
+  recommendation-service:
+    image: bhgaur/python-app-image:python-app
+    build:
+      context: ../../apps
+      dockerfile: python-app/Dockerfile
+    container_name: recommendation-service
+    command: gunicorn --workers=4 --threads=2 --worker-class=gthread --bind=0.0.0.0:5001 --timeout=120 app:app
+    ports:
+      - "5001:5001"
+    environment:
+      - PORT=5001
+      - ENABLE_OBSERVABILITY=${ENABLE_OBSERVABILITY:-true}
+      - KAFKA_BROKERS=kafka:9092
+      - POSTGRES_HOST=postgres
+      - POSTGRES_PORT=5432
+      - POSTGRES_DB=lgtmdb
+      - POSTGRES_USER=lgtmuser
+      - POSTGRES_PASSWORD=lgtmpass
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://alloy:4318
+      - OTEL_EXPORTER_OTLP_PROTOCOL=http/protobuf
+      - OTEL_SERVICE_NAME=recommendation-service
+      - OTEL_LOGS_EXPORTER=otlp
+      - OTEL_METRICS_EXPORTER=otlp
+      - OTEL_TRACES_EXPORTER=otlp
+      - OTEL_METRIC_EXPORT_INTERVAL=10000
+      - OTEL_METRICS_EXEMPLAR_FILTER=always_on
+    depends_on:
+      - alloy
+      - postgres
+      - kafka
+    networks:
+      - lgtm
+
+  # 16. Inventory Service
+  inventory-service:
+    image: bhgaur/python-app-image:go-app
+    build:
+      context: ../../apps
+      dockerfile: go-app/Dockerfile
+    container_name: inventory-service
+    ports:
+      - "8087:8087"
+    environment:
+      - PORT=8087
+      - PYTHON_SERVICE_URL=http://python-app:5000
+      - OTEL_EXPORTER_OTLP_ENDPOINT=alloy:4318
+      - OTEL_SERVICE_NAME=inventory-service
+    depends_on:
+      - alloy
+      - python-app
+    networks:
+      - lgtm
+
+  # 17. Audit Service
+  audit-service:
+    image: bhgaur/python-app-image:python-app
+    build:
+      context: ../../apps
+      dockerfile: python-app/Dockerfile
+    container_name: audit-service
+    command: gunicorn --workers=4 --threads=2 --worker-class=gthread --bind=0.0.0.0:5002 --timeout=120 app:app
+    ports:
+      - "5002:5002"
+    environment:
+      - PORT=5002
+      - ENABLE_OBSERVABILITY=${ENABLE_OBSERVABILITY:-true}
+      - KAFKA_BROKERS=kafka:9092
+      - POSTGRES_HOST=postgres
+      - POSTGRES_PORT=5432
+      - POSTGRES_DB=lgtmdb
+      - POSTGRES_USER=lgtmuser
+      - POSTGRES_PASSWORD=lgtmpass
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://alloy:4318
+      - OTEL_EXPORTER_OTLP_PROTOCOL=http/protobuf
+      - OTEL_SERVICE_NAME=audit-service
+      - OTEL_LOGS_EXPORTER=otlp
+      - OTEL_METRICS_EXPORTER=otlp
+      - OTEL_TRACES_EXPORTER=otlp
+      - OTEL_METRIC_EXPORT_INTERVAL=10000
+      - OTEL_METRICS_EXEMPLAR_FILTER=always_on
+    depends_on:
+      - alloy
+      - postgres
+      - kafka
+    networks:
+      - lgtm
+
+  # 18. Alerting Service
+  alerting-service:
+    image: bhgaur/python-app-image:notification-service
+    build:
+      context: ../../apps
+      dockerfile: notification-service/Dockerfile
+    container_name: alerting-service
+    ports:
+      - "8088:8088"
+    environment:
+      - PORT=8088
+      - ENABLE_OBSERVABILITY=${ENABLE_OBSERVABILITY:-true}
+      - KAFKA_BROKERS=kafka:9092
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://alloy:4318
+      - OTEL_SERVICE_NAME=alerting-service
+    depends_on:
+      - alloy
+      - kafka
+    networks:
+      - lgtm
+
+  # 19. Reporting Service
+  reporting-service:
+    image: bhgaur/python-app-image:python-app
+    build:
+      context: ../../apps
+      dockerfile: python-app/Dockerfile
+    container_name: reporting-service
+    command: gunicorn --workers=4 --threads=2 --worker-class=gthread --bind=0.0.0.0:5003 --timeout=120 app:app
+    ports:
+      - "5003:5003"
+    environment:
+      - PORT=5003
+      - ENABLE_OBSERVABILITY=${ENABLE_OBSERVABILITY:-true}
+      - KAFKA_BROKERS=kafka:9092
+      - POSTGRES_HOST=postgres
+      - POSTGRES_PORT=5432
+      - POSTGRES_DB=lgtmdb
+      - POSTGRES_USER=lgtmuser
+      - POSTGRES_PASSWORD=lgtmpass
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://alloy:4318
+      - OTEL_EXPORTER_OTLP_PROTOCOL=http/protobuf
+      - OTEL_SERVICE_NAME=reporting-service
+      - OTEL_LOGS_EXPORTER=otlp
+      - OTEL_METRICS_EXPORTER=otlp
+      - OTEL_TRACES_EXPORTER=otlp
+      - OTEL_METRIC_EXPORT_INTERVAL=10000
+      - OTEL_METRICS_EXEMPLAR_FILTER=always_on
+    depends_on:
+      - alloy
+      - postgres
+      - kafka
+    networks:
+      - lgtm
+
 networks:
   lgtm:
     name: lgtm-network

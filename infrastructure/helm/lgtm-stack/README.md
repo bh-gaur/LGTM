@@ -1,6 +1,6 @@
 # LGTM Stack Kubernetes Helm Chart
 
-This Helm chart packages and deploys a complete distributed telemetry stack (Grafana, Loki, Tempo, Mimir, Grafana Alloy) alongside a PostgreSQL database infrastructure, a Node.js Express entrypoint service, and a downstream Python Flask processing service on Kubernetes (configured for EKS).
+This Helm chart packages and deploys a complete distributed telemetry stack (Grafana, Loki, Tempo, Mimir, Grafana Alloy) alongside a PostgreSQL database infrastructure, a Node.js Hapi.js entrypoint service, and a downstream Python Flask processing service on Kubernetes (configured for EKS).
 
 ## Chart Components
 

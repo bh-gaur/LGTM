@@ -59,6 +59,20 @@ def init_db():
 # Kafka Consumer Background Thread
 KAFKA_BROKERS = os.environ.get("KAFKA_BROKERS", "kafka:9092")
 
+# Kafka Producer Configuration
+import json
+from kafka import KafkaProducer
+kafka_producer = None
+try:
+    kafka_producer = KafkaProducer(
+        bootstrap_servers=KAFKA_BROKERS.split(','),
+        value_serializer=lambda v: json.dumps(v).encode('utf-8'),
+        retries=5
+    )
+    logger.info("Successfully connected Kafka Producer in python-app.")
+except Exception as ex:
+    logger.warning(f"Failed to initialize Kafka Producer in python-app: {ex}")
+
 def start_kafka_consumer():
     """Background thread consuming events from Kafka topic 'task-events' with 3 retries and a Dead-Letter Queue (DLQ)."""
     import threading
@@ -85,7 +99,7 @@ def start_kafka_consumer():
                 bootstrap_servers=KAFKA_BROKERS.split(','),
                 value_deserializer=lambda m: json.loads(m.decode('utf-8')),
                 auto_offset_reset='earliest',
-                group_id='python-app-consumer-group'
+                group_id=f'{os.getenv("OTEL_SERVICE_NAME", "python-app")}-consumer-group'
             )
             logger.info(f"Successfully started Kafka consumer thread listening on topic 'task-events' ({KAFKA_BROKERS})")
             for message in consumer:
@@ -524,6 +538,150 @@ def docs():
 # ============================================================================
 # SERVER INITIALIZATION
 # ============================================================================
+
+# ============================================================================
+# DOWNSTREAM PIPELINE ROLES / ENDPOINTS (12-SERVICE topology)
+# ============================================================================
+import urllib.request
+import json
+import uuid
+from opentelemetry import propagate
+
+@app.route("/recommend", methods=["GET"])
+def recommend():
+    num = request.args.get("num", "1")
+    logger.info(f"[RECOMMENDATION-SERVICE] Processing recommendation for num={num}")
+    
+    headers = {}
+    propagate.inject(headers)
+    
+    req = urllib.request.Request(
+        f"http://go-app:8083/math/deep-primes/{num}",
+        headers=headers,
+        method="GET"
+    )
+    try:
+        with urllib.request.urlopen(req) as response:
+            res_data = json.loads(response.read().decode())
+    except Exception as err:
+        logger.error(f"[RECOMMENDATION-SERVICE] Downstream call failed: {err}")
+        return jsonify({"error": str(err)}), 500
+        
+    return jsonify(res_data)
+
+
+@app.route("/audit/log", methods=["POST"])
+def audit_log():
+    data = request.get_json() or {}
+    logger.info(f"[AUDIT-SERVICE] Auditing request: {data}")
+    
+    headers = {}
+    propagate.inject(headers)
+    
+    req = urllib.request.Request(
+        "http://python-app:5000/python/finalize-deep",
+        data=json.dumps(data).encode("utf-8"),
+        headers={**headers, "Content-Type": "application/json"},
+        method="POST"
+    )
+    try:
+        with urllib.request.urlopen(req) as response:
+            res_data = json.loads(response.read().decode())
+    except Exception as err:
+        logger.error(f"[AUDIT-SERVICE] Downstream finalize call failed: {err}")
+        return jsonify({"error": str(err)}), 500
+        
+    return jsonify(res_data)
+
+
+@app.route("/python/finalize-deep", methods=["POST"])
+def finalize_deep():
+    data = request.get_json() or {}
+    number = data.get("number", 0)
+    logger.info(f"[PYTHON-APP] Finalizing deep pipeline for N={number}")
+    
+    # 1. Database write
+    if db_pool:
+        conn = None
+        try:
+            conn = db_pool.getconn()
+            with conn.cursor() as cur:
+                cur.execute(
+                    "INSERT INTO kafka_events (event_id, topic, payload) VALUES (%s, %s, %s);",
+                    (str(uuid.uuid4()), "deep-finalize", f"Sum is {number}")
+                )
+                conn.commit()
+        except Exception as db_err:
+            logger.warning(f"Database write failed: {db_err}")
+        finally:
+            if conn:
+                db_pool.putconn(conn)
+                
+    # 2. Call db-sync-service synchronously
+    sync_result = {}
+    try:
+        headers = {}
+        propagate.inject(headers)
+        req = urllib.request.Request(
+            "http://db-sync-service:8085/sync/trigger",
+            headers=headers,
+            method="POST"
+        )
+        with urllib.request.urlopen(req) as response:
+            sync_result = json.loads(response.read().decode())
+    except Exception as sync_err:
+        logger.warning(f"Failed calling db-sync-service: {sync_err}")
+        sync_result = {"status": "failed", "error": str(sync_err)}
+
+    # 3. Publish to Kafka asynchronously
+    if kafka_producer:
+        try:
+            event_id = str(uuid.uuid4())
+            event_payload = {
+                "event_id": event_id,
+                "type": "deep_completed",
+                "payload": f"Orchestrated calculation sum: {number}"
+            }
+            kafka_headers = []
+            headers = {}
+            propagate.inject(headers)
+            for k, v in headers.items():
+                kafka_headers.append((k, v.encode('utf-8')))
+            
+            kafka_producer.send(
+                'task-events',
+                value=event_payload,
+                headers=kafka_headers
+            )
+            logger.info(f"Published deep task event '{event_id}' to Kafka topic 'task-events'")
+        except Exception as k_err:
+            logger.warning(f"Failed to publish Kafka event: {k_err}")
+            
+    return jsonify({
+        "status": "completed",
+        "value": number,
+        "sync_audit": sync_result,
+        "service": "python-app"
+    })
+
+
+@app.route("/report/summary", methods=["GET"])
+def report_summary():
+    logger.info("[REPORTING-SERVICE] Fetching report summary statistics")
+    if db_pool:
+        conn = None
+        try:
+            conn = db_pool.getconn()
+            with conn.cursor() as cur:
+                cur.execute("SELECT count(*) FROM kafka_events;")
+                count = cur.fetchone()[0]
+                return jsonify({"total_saved_events": count, "service": "reporting-service"})
+        except Exception as e:
+            return jsonify({"error": str(e)}), 500
+        finally:
+            if conn:
+                db_pool.putconn(conn)
+    return jsonify({"total_saved_events": 0, "service": "reporting-service"})
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))

@@ -188,6 +188,84 @@ func main() {
 		})
 	})
 
+	// 12-Service Topology - Go deep primes endpoint (for go-app)
+	r.GET("/math/deep-primes/:num", func(c *gin.Context) {
+		ctx := c.Request.Context()
+		numStr := c.Param("num")
+		num, err := strconv.Atoi(numStr)
+		if err != nil || num <= 1 {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid positive integer greater than 1"})
+			return
+		}
+
+		factors := primeFactors(num)
+		sum := 0
+		for _, f := range factors {
+			sum += f
+		}
+
+		// Call inventory-service
+		clientCtx, clientSpan := tracer.Start(ctx, "CallInventoryCheck")
+		defer clientSpan.End()
+
+		req, err := http.NewRequestWithContext(clientCtx, "GET", fmt.Sprintf("http://inventory-service:8087/inventory/check/%d", sum), nil)
+		if err == nil {
+			otel.GetTextMapPropagator().Inject(clientCtx, propagation.HeaderCarrier(req.Header))
+			client := &http.Client{Timeout: 5 * time.Second}
+			resp, err := client.Do(req)
+			if err == nil {
+				defer resp.Body.Close()
+				var invResult map[string]interface{}
+				json.NewDecoder(resp.Body).Decode(&invResult)
+				c.JSON(http.StatusOK, gin.H{
+					"service": "go-app",
+					"factors": factors,
+					"sum":     sum,
+					"result":  invResult,
+				})
+				return
+			}
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed calling inventory-service"})
+	})
+
+	// 12-Service Topology - Inventory Check endpoint (for inventory-service)
+	r.GET("/inventory/check/:num", func(c *gin.Context) {
+		ctx := c.Request.Context()
+		numStr := c.Param("num")
+		num, _ := strconv.Atoi(numStr)
+
+		// Call analytics-service compute-deep
+		clientCtx, clientSpan := tracer.Start(ctx, "CallAnalyticsComputeDeep")
+		defer clientSpan.End()
+
+		payload := map[string]interface{}{
+			"sum": num,
+		}
+		jsonBytes, _ := json.Marshal(payload)
+
+		req, err := http.NewRequestWithContext(clientCtx, "POST", "http://analytics-service:8086/analytics/compute-deep", bytes.NewBuffer(jsonBytes))
+		if err == nil {
+			req.Header.Set("Content-Type", "application/json")
+			otel.GetTextMapPropagator().Inject(clientCtx, propagation.HeaderCarrier(req.Header))
+			client := &http.Client{Timeout: 5 * time.Second}
+			resp, err := client.Do(req)
+			if err == nil {
+				defer resp.Body.Close()
+				var analyticsResult map[string]interface{}
+				json.NewDecoder(resp.Body).Decode(&analyticsResult)
+				c.JSON(http.StatusOK, gin.H{
+					"service":   "inventory-service",
+					"inventory": "checked",
+					"quantity":  num * 5,
+					"analytics": analyticsResult,
+				})
+				return
+			}
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed calling analytics-service"})
+	})
+
 	port := os.Getenv("PORT")
 	if port == "" {
 		port = "8083"

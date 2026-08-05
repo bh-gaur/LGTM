@@ -13,7 +13,7 @@ cd z_etc/LGTM/infrastructure/docker-compose
 docker compose ps
 ```
 
-All 10 services should report `Up` or `Up (healthy)`.
+All 20 services should report `Up` or `Up (healthy)`.
 
 ---
 
@@ -85,6 +85,39 @@ curl -H "x-api-key: lgtm-secret-key" http://localhost:8081/user/1
 curl -X POST -H "x-api-key: lgtm-secret-key" -H "Content-Type: application/json" \
   -d '{"message": "Test event dispatch"}' \
   http://localhost:8081/kafka/publish
+```
+
+### 6. 12-Service Nested Downstream Trace Pipeline (Deep Trace)
+Verifies synchronous cascade and parallel asynchronous consumption propagation across all 12 microservices.
+```bash
+curl -H "x-api-key: lgtm-secret-key" http://localhost:8081/calculate/deep/20
+```
+**Expected Output**:
+```json
+{
+  "factors": [2, 2, 5],
+  "result": {
+    "analytics": {
+      "audit_log": {
+        "service": "python-app",
+        "status": "completed",
+        "sync_audit": {
+          "service": "db-sync-service",
+          "status": "sync_success",
+          "tables_count": 3
+        },
+        "value": 9
+      },
+      "service": "analytics-service",
+      "tables_count": 3
+    },
+    "inventory": "checked",
+    "quantity": 45,
+    "service": "inventory-service"
+  },
+  "service": "go-app",
+  "sum": 9
+}
 ```
 
 ---

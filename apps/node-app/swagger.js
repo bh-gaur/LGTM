@@ -1,9 +1,9 @@
 const swaggerDocument = {
   openapi: "3.0.0",
   info: {
-    title: "Node.js Express App API",
+    title: "Node.js Hapi.js App API",
     version: "1.0.0",
-    description: "API Documentation for Node.js Express App in LGTM Stack"
+    description: "API Documentation for Node.js Hapi.js App in LGTM Stack"
   },
   paths: {
     "/": {

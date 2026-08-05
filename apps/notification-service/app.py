@@ -37,10 +37,11 @@ def start_kafka_consumer():
         
         while True:
             try:
+                service_name_val = os.getenv("OTEL_SERVICE_NAME", "notification-service")
                 consumer = KafkaConsumer(
                     "task-events",
                     bootstrap_servers=kafka_brokers.split(","),
-                    group_id="notification-group",
+                    group_id=f"{service_name_val}-group",
                     auto_offset_reset="latest",
                     value_deserializer=lambda x: json.loads(x.decode("utf-8"))
                 )
