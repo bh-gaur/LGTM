@@ -17,7 +17,7 @@ COPY common /app/common
 COPY node-app/ /app/node-app/
 
 # Prune devDependencies to keep only production packages
-RUN npm prune --omit=dev
+RUN npm prune --omit=dev --legacy-peer-deps
 
 # ==========================================
 # STAGE 2: Final Production Runner

@@ -3,7 +3,7 @@ version: '3.8'
 services:
   # 1. Visualization
   grafana:
-    image: grafana/grafana:10.4.2
+    image: grafana/grafana:12.3.1
     container_name: lgtm-grafana
     ports:
       - "3000:3000"
@@ -22,7 +22,7 @@ services:
 
   # 2. Metrics Backend
   mimir:
-    image: grafana/mimir:2.12.0
+    image: grafana/mimir:3.1.2
     container_name: lgtm-mimir
     command: -config.file=/etc/mimir/mimir-config.yaml -target=all
     ports:
@@ -34,7 +34,7 @@ services:
 
   # 3. Logs Backend
   loki:
-    image: grafana/loki:2.9.8
+    image: grafana/loki:2.9.13
     container_name: lgtm-loki
     command: -config.file=/etc/loki/loki-config.yaml -target=all
     ports:
@@ -46,68 +46,67 @@ services:
 
   # 4. Traces Backend
   tempo:
-    image: grafana/tempo:2.4.1
+    image: grafana/tempo:2.9.0
     container_name: lgtm-tempo
     command: -config.file=/etc/tempo/tempo-config.yaml -target=all
     ports:
       - "3200:3200"
+      # port 4317 (OTLP gRPC) is internal only — otel-collector reaches it via Docker network
     volumes:
       - ./tempo:/etc/tempo
     networks:
       - lgtm
 
-  # 5. Telemetry Collector (Alloy)
-  alloy:
-    image: grafana/alloy:v1.1.0
-    container_name: lgtm-alloy
-    command: run /etc/alloy/config.alloy --storage.path=/tmp/alloy/data --server.http.listen-addr=0.0.0.0:12345
+
+  # 5. Telemetry Collector (OpenTelemetry Collector Contrib)
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.98.0
+    container_name: lgtm-otel-collector
+    command: ["--config=/etc/otel-collector/otel-collector-config.yaml"]
     ports:
-      - "12345:12345" # Alloy UI
-      - "4317:4317" # OTLP gRPC
-      - "4318:4318" # OTLP HTTP
+      - "4317:4317"   # OTLP gRPC receiver
+      - "4318:4318"   # OTLP HTTP receiver
+      - "8888:8888"   # Collector self-metrics (Prometheus scrape)
+      - "13133:13133" # Health check extension
     volumes:
-      - ./alloy:/etc/alloy
+      - ./otel-collector:/etc/otel-collector
     environment:
       - MIMIR_ENDPOINT=${MIMIR_ENDPOINT:-http://mimir:9009/otlp}
-      - MIMIR_REMOTE_WRITE_URL=${MIMIR_REMOTE_WRITE_URL:-http://mimir:9009/api/v1/push}
-      - LOKI_PUSH_URL=${LOKI_PUSH_URL:-http://loki:3100/loki/api/v1/push}
+      - LOKI_PUSH_URL=${LOKI_PUSH_URL:-http://loki:3100/otlp}
       - TEMPO_ENDPOINT=${TEMPO_ENDPOINT:-tempo:4317}
-      - ALLOY_INTERNAL_METRICS_TARGET=${ALLOY_INTERNAL_METRICS_TARGET:-localhost:12345}
       - NODE_APP_SCRAPE_TARGET=${NODE_APP_SCRAPE_TARGET:-node-app:8081}
     depends_on:
       - mimir
       - loki
       - tempo
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:12345/-/ready"]
-      interval: 10s
-      timeout: 5s
-      retries: 3
+      test: ["NONE"]
     networks:
       - lgtm
 
   # 6. Apache Kafka Message Broker (KRaft Mode)
   kafka:
-    image: apache/kafka:latest
+    image: apache/kafka:3.9.0
     container_name: lgtm-kafka
     ports:
       - "9092:9092"
       - "29092:29092"
     environment:
       KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: 'broker,controller'
+      KAFKA_CONTROLLER_QUORUM_VOTERS: '1@kafka:9093'
       KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: 'CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT'
+      KAFKA_LISTENERS: 'PLAINTEXT://kafka:9092,CONTROLLER://kafka:9093,PLAINTEXT_HOST://0.0.0.0:29092'
       KAFKA_ADVERTISED_LISTENERS: 'PLAINTEXT://kafka:9092,PLAINTEXT_HOST://localhost:29092'
+      KAFKA_INTER_BROKER_LISTENER_NAME: 'PLAINTEXT'
+      KAFKA_CONTROLLER_LISTENER_NAMES: 'CONTROLLER'
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
       KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
       KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
       KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
-      KAFKA_PROCESS_ROLES: 'broker,controller'
-      KAFKA_CONTROLLER_QUORUM_VOTERS: '1@kafka:9093'
-      KAFKA_LISTENERS: 'PLAINTEXT://0.0.0.0:9092,CONTROLLER://0.0.0.0:9093,PLAINTEXT_HOST://0.0.0.0:29092'
-      KAFKA_INTER_BROKER_LISTENER_NAME: 'PLAINTEXT'
-      KAFKA_CONTROLLER_LISTENER_NAMES: 'CONTROLLER'
       KAFKA_LOG_DIRS: '/tmp/kraft-combined-logs'
       KAFKA_AUTO_CREATE_TOPICS_ENABLE: 'true'
+      CLUSTER_ID: 'MkU3OEVBNTcwNTJENDM2Qk'
     networks:
       - lgtm
 
@@ -130,7 +129,7 @@ services:
       - POSTGRES_DB=lgtmdb
       - POSTGRES_USER=lgtmuser
       - POSTGRES_PASSWORD=lgtmpass
-      - OTEL_EXPORTER_OTLP_ENDPOINT=http://alloy:4318
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4318
       - OTEL_EXPORTER_OTLP_PROTOCOL=http/protobuf
       - OTEL_SERVICE_NAME=python-app
       - OTEL_LOGS_EXPORTER=otlp
@@ -139,7 +138,7 @@ services:
       - OTEL_METRIC_EXPORT_INTERVAL=10000
       - OTEL_METRICS_EXEMPLAR_FILTER=always_on
     depends_on:
-      - alloy
+      - otel-collector
       - postgres
       - kafka
     networks:
@@ -160,11 +159,12 @@ services:
       - PYTHON_SERVICE_URL=http://python-app:5000
       - KAFKA_BROKERS=kafka:9092
       - REDIS_HOST=redis
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4318
       - OTEL_SERVICE_NAME=node-app
       - OTEL_METRICS_EXEMPLAR_FILTER=always_on
     depends_on:
       - python-app
-      - alloy
+      - otel-collector
       - kafka
       - redis
     networks:
@@ -216,10 +216,10 @@ services:
     environment:
       - PORT=8082
       - ENABLE_OBSERVABILITY=${ENABLE_OBSERVABILITY:-true}
-      - OTEL_EXPORTER_OTLP_ENDPOINT=http://alloy:4318
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4318
       - OTEL_SERVICE_NAME=auth-service
     depends_on:
-      - alloy
+      - otel-collector
     networks:
       - lgtm
 
@@ -235,10 +235,10 @@ services:
     environment:
       - PORT=8083
       - PYTHON_SERVICE_URL=http://python-app:5000
-      - OTEL_EXPORTER_OTLP_ENDPOINT=alloy:4318
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4318
       - OTEL_SERVICE_NAME=go-app
     depends_on:
-      - alloy
+      - otel-collector
       - python-app
     networks:
       - lgtm
@@ -256,10 +256,10 @@ services:
       - PORT=8084
       - ENABLE_OBSERVABILITY=${ENABLE_OBSERVABILITY:-true}
       - KAFKA_BROKERS=kafka:9092
-      - OTEL_EXPORTER_OTLP_ENDPOINT=http://alloy:4318
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4318
       - OTEL_SERVICE_NAME=notification-service
     depends_on:
-      - alloy
+      - otel-collector
       - kafka
     networks:
       - lgtm
@@ -280,10 +280,10 @@ services:
       - POSTGRES_DB=lgtmdb
       - POSTGRES_USER=lgtmuser
       - POSTGRES_PASSWORD=lgtmpass
-      - OTEL_EXPORTER_OTLP_ENDPOINT=alloy:4318
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4318
       - OTEL_SERVICE_NAME=db-sync-service
     depends_on:
-      - alloy
+      - otel-collector
       - postgres
     networks:
       - lgtm
@@ -305,10 +305,10 @@ services:
       - POSTGRES_DB=lgtmdb
       - POSTGRES_USER=lgtmuser
       - POSTGRES_PASSWORD=lgtmpass
-      - OTEL_EXPORTER_OTLP_ENDPOINT=http://alloy:4318
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4318
       - OTEL_SERVICE_NAME=analytics-service
     depends_on:
-      - alloy
+      - otel-collector
       - postgres
     networks:
       - lgtm
@@ -332,7 +332,7 @@ services:
       - POSTGRES_DB=lgtmdb
       - POSTGRES_USER=lgtmuser
       - POSTGRES_PASSWORD=lgtmpass
-      - OTEL_EXPORTER_OTLP_ENDPOINT=http://alloy:4318
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4318
       - OTEL_EXPORTER_OTLP_PROTOCOL=http/protobuf
       - OTEL_SERVICE_NAME=recommendation-service
       - OTEL_LOGS_EXPORTER=otlp
@@ -341,7 +341,7 @@ services:
       - OTEL_METRIC_EXPORT_INTERVAL=10000
       - OTEL_METRICS_EXEMPLAR_FILTER=always_on
     depends_on:
-      - alloy
+      - otel-collector
       - postgres
       - kafka
     networks:
@@ -359,10 +359,10 @@ services:
     environment:
       - PORT=8087
       - PYTHON_SERVICE_URL=http://python-app:5000
-      - OTEL_EXPORTER_OTLP_ENDPOINT=alloy:4318
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4318
       - OTEL_SERVICE_NAME=inventory-service
     depends_on:
-      - alloy
+      - otel-collector
       - python-app
     networks:
       - lgtm
@@ -386,7 +386,7 @@ services:
       - POSTGRES_DB=lgtmdb
       - POSTGRES_USER=lgtmuser
       - POSTGRES_PASSWORD=lgtmpass
-      - OTEL_EXPORTER_OTLP_ENDPOINT=http://alloy:4318
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4318
       - OTEL_EXPORTER_OTLP_PROTOCOL=http/protobuf
       - OTEL_SERVICE_NAME=audit-service
       - OTEL_LOGS_EXPORTER=otlp
@@ -395,7 +395,7 @@ services:
       - OTEL_METRIC_EXPORT_INTERVAL=10000
       - OTEL_METRICS_EXEMPLAR_FILTER=always_on
     depends_on:
-      - alloy
+      - otel-collector
       - postgres
       - kafka
     networks:
@@ -414,10 +414,10 @@ services:
       - PORT=8088
       - ENABLE_OBSERVABILITY=${ENABLE_OBSERVABILITY:-true}
       - KAFKA_BROKERS=kafka:9092
-      - OTEL_EXPORTER_OTLP_ENDPOINT=http://alloy:4318
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4318
       - OTEL_SERVICE_NAME=alerting-service
     depends_on:
-      - alloy
+      - otel-collector
       - kafka
     networks:
       - lgtm
@@ -441,7 +441,7 @@ services:
       - POSTGRES_DB=lgtmdb
       - POSTGRES_USER=lgtmuser
       - POSTGRES_PASSWORD=lgtmpass
-      - OTEL_EXPORTER_OTLP_ENDPOINT=http://alloy:4318
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4318
       - OTEL_EXPORTER_OTLP_PROTOCOL=http/protobuf
       - OTEL_SERVICE_NAME=reporting-service
       - OTEL_LOGS_EXPORTER=otlp
@@ -450,7 +450,7 @@ services:
       - OTEL_METRIC_EXPORT_INTERVAL=10000
       - OTEL_METRICS_EXEMPLAR_FILTER=always_on
     depends_on:
-      - alloy
+      - otel-collector
       - postgres
       - kafka
     networks:

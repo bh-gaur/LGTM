@@ -23,15 +23,10 @@ datasources:
     jsonData:
       derivedFields:
         - datasourceUid: tempo
-          matcherRegex: 'trace_id[^a-f0-9]+([a-f0-9]+)'
+          matcherRegex: '(?i)(?:trace_?id|traceid)[^a-f0-9]+([a-f0-9]{16,32})'
           name: TraceID
-          url: "$${__value.raw}"
-          urlDisplayLabel: "View Trace"
-        - datasourceUid: tempo
-          matcherRegex: 'traceid[^a-f0-9]+([a-f0-9]+)'
-          name: TraceID
-          url: "$${__value.raw}"
-          urlDisplayLabel: "View Trace"
+          url: "${__value.raw}"
+          urlDisplayLabel: "View Trace in Tempo"
 
   - name: Tempo
     type: tempo
@@ -39,18 +34,35 @@ datasources:
     url: http://tempo:3200
     uid: tempo
     jsonData:
+      httpMethod: GET
+      # Grafana 12: explicitly use HTTP API, not gRPC
+      grpcEndpoint: tempo:4317
       tracesToLogsV2:
         datasourceUid: 'loki'
         spanStartTimeShift: '-1m'
         spanEndTimeShift: '1m'
         tags:
           - key: 'service.name'
+            value: 'service_name'
+          - key: 'service.name'
             value: 'job'
+          - key: 'service_name'
+            value: 'service_name'
           - key: 'service_name'
             value: 'job'
         filterByTraceID: true
         filterBySpanID: false
+      tracesToMetrics:
+        datasourceUid: 'prometheus'
+        tags:
+          - key: 'service.name'
+            value: 'job'
+        queries:
+          - name: 'Request rate'
+            query: 'sum(rate(traces_spanmetrics_calls_total{$$__tags}[5m]))'
       serviceMap:
         datasourceUid: 'prometheus'
       nodeGraph:
         enabled: true
+      search:
+        hide: false

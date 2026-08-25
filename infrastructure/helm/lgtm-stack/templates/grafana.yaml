@@ -31,15 +31,10 @@ data:
         jsonData:
           derivedFields:
             - datasourceUid: tempo
-              matcherRegex: 'trace_id[^a-f0-9]+([a-f0-9]+)'
+              matcherRegex: '(?i)(?:trace_?id|traceid)[^a-f0-9]+([a-f0-9]{16,32})'
               name: TraceID
-              url: "$${__value.raw}"
-              urlDisplayLabel: "View Trace"
-            - datasourceUid: tempo
-              matcherRegex: 'traceid[^a-f0-9]+([a-f0-9]+)'
-              name: TraceID
-              url: "$${__value.raw}"
-              urlDisplayLabel: "View Trace"
+              url: "${__value.raw}"
+              urlDisplayLabel: "View Trace in Tempo"
 
       - name: Tempo
         type: tempo
@@ -53,7 +48,11 @@ data:
             spanEndTimeShift: '1m'
             tags:
               - key: 'service.name'
+                value: 'service_name'
+              - key: 'service.name'
                 value: 'job'
+              - key: 'service_name'
+                value: 'service_name'
               - key: 'service_name'
                 value: 'job'
             filterByTraceID: true
