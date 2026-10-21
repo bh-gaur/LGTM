@@ -1,0 +1,85 @@
+version: '3.8'
+
+services:
+  # 1. Visualization Console
+  grafana:
+    image: grafana/grafana:12.3.1
+    container_name: lgtm-quickstart-grafana
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_AUTH_ANONYMOUS_ENABLED=false
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning
+    depends_on:
+      - mimir
+      - loki
+      - tempo
+    networks:
+      - lgtm-net
+
+  # 2. Metrics Backend (Mimir)
+  mimir:
+    image: grafana/mimir:3.1.2
+    container_name: lgtm-quickstart-mimir
+    command: -config.file=/etc/mimir/mimir-config.yaml -target=all
+    ports:
+      - "9009:9009"
+    volumes:
+      - ./mimir:/etc/mimir
+    networks:
+      - lgtm-net
+
+  # 3. Logs Backend (Loki)
+  loki:
+    image: grafana/loki:2.9.13
+    container_name: lgtm-quickstart-loki
+    command: -config.file=/etc/loki/loki-config.yaml -target=all
+    ports:
+      - "3100:3100"
+    volumes:
+      - ./loki:/etc/loki
+    networks:
+      - lgtm-net
+
+  # 4. Traces Backend (Tempo)
+  tempo:
+    image: grafana/tempo:2.9.0
+    container_name: lgtm-quickstart-tempo
+    command: -config.file=/etc/tempo/tempo-config.yaml -target=all
+    ports:
+      - "3200:3200"
+    volumes:
+      - ./tempo:/etc/tempo
+    networks:
+      - lgtm-net
+
+  # 5. OpenTelemetry Collector Gateway
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.98.0
+    container_name: lgtm-quickstart-collector
+    command: ["--config=/etc/otel-collector/otel-collector-config.yaml"]
+    ports:
+      - "4317:4317"   # OTLP gRPC receiver
+      - "4318:4318"   # OTLP HTTP receiver
+      - "8888:8888"   # Collector internal metrics
+      - "13133:13133" # Health check extension
+    volumes:
+      - ./otel-collector:/etc/otel-collector
+    environment:
+      - MIMIR_ENDPOINT=http://mimir:9009/otlp
+      - LOKI_PUSH_URL=http://loki:3100/otlp
+      - TEMPO_ENDPOINT=tempo:4317
+      - NODE_APP_SCRAPE_TARGET=localhost:8888
+    depends_on:
+      - mimir
+      - loki
+      - tempo
+    networks:
+      - lgtm-net
+
+networks:
+  lgtm-net:
+    driver: bridge

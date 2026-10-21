@@ -1,0 +1,140 @@
+# OpenTelemetry Collector Configuration (v0.98.0)
+# Equivalent to the previous Alloy pipeline:
+#   OTLP receiver → spanmetrics connector → batch processor → Mimir / Loki / Tempo exporters
+
+extensions:
+  health_check:
+    endpoint: 0.0.0.0:13133
+
+receivers:
+  # ─── 1. Receive OTLP signals (gRPC + HTTP) ────────────────────────────────
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+      http:
+        endpoint: 0.0.0.0:4318
+
+  # ─── Scrape Prometheus endpoints (replaces prometheus.scrape in Alloy) ────
+  prometheus:
+    config:
+      global:
+        scrape_interval: 30s
+        scrape_timeout: 10s
+
+      scrape_configs:
+        # Collector self-metrics
+        - job_name: otel-collector
+          scrape_interval: 15s
+          static_configs:
+            - targets: ["localhost:8888"]
+
+        # Node.js / app metrics
+        - job_name: node-app
+          scrape_interval: 15s
+          static_configs:
+            - targets: ["${env:NODE_APP_SCRAPE_TARGET}"]
+
+        # Auth service metrics
+        - job_name: auth-service
+          scrape_interval: 15s
+          static_configs:
+            - targets: ["auth-service:8082"]
+
+connectors:
+  # ─── 2. Spanmetrics connector – derives RED metrics from trace spans ───────
+  spanmetrics:
+    namespace: traces.spanmetrics
+
+    histogram:
+      unit: ms
+      explicit:
+        buckets: [5ms, 10ms, 25ms, 50ms, 100ms, 200ms, 500ms, 1s, 2s, 5s, 10s]
+
+    dimensions:
+      - name: http.method
+      - name: http.status_code
+      - name: organization_id      # multi-tenant filtering in Grafana
+      - name: project_id
+      - name: event_type
+
+    exemplars:
+      enabled: true
+
+    # Propagate SDK metadata into generated metric labels
+    resource_metrics_key_attributes:
+      - telemetry.sdk.language
+      - telemetry.sdk.name
+
+    dimensions_cache_size: 1000         # cap memory for unique label combos
+    aggregation_temporality: AGGREGATION_TEMPORALITY_CUMULATIVE
+    metrics_flush_interval: 15s
+    metrics_expiration: 10m             # drop series for silent services
+
+processors:
+  # ─── Memory limiter – prevents OOM crashes on traffic spikes ────────────
+  # Must be the FIRST processor in every pipeline.
+  memory_limiter:
+    check_interval: 2s
+    limit_mib: 1500      # hard ceiling — collector starts dropping data here
+    spike_limit_mib: 300 # headroom above steady-state to absorb bursts
+
+  # ─── Batch processor – reduces export calls ──────────────────────────────
+  batch:
+    send_batch_size: 1000     # flush after 1000 items
+    send_batch_max_size: 2000 # hard cap per payload (protects backends)
+    timeout: 5s               # flush even if batch isn't full yet
+
+  # ─── Resource attributes (labels every signal with service info) ──────────
+  resource:
+    attributes:
+      - action: insert
+        key: loki.resource.labels
+        value: service.name, service.version, deployment.environment
+
+exporters:
+  # ─── 4a. Metrics → Mimir (native OTLP HTTP) ─────────────────────────────
+  otlphttp/mimir:
+    endpoint: ${env:MIMIR_ENDPOINT}
+    tls:
+      insecure: true
+
+  # ─── 4b. Traces → Tempo (OTLP gRPC) ────────────────────────────────────
+  otlp/tempo:
+    endpoint: ${env:TEMPO_ENDPOINT}
+    tls:
+      insecure: true
+
+  # ─── 4c. Logs → Loki (native OTLP HTTP) ─────────────────────────────────
+  otlphttp/loki:
+    endpoint: ${env:LOKI_PUSH_URL}
+    tls:
+      insecure: true
+
+  # ─── Debug (optional, remove in production) ──────────────────────────────
+  debug:
+    verbosity: basic
+    sampling_initial: 5
+    sampling_thereafter: 200
+
+service:
+  extensions: [health_check]
+
+  pipelines:
+    # Traces: memory_limiter first → batch → Tempo (+ feed spanmetrics)
+    traces:
+      receivers: [otlp]
+      processors: [memory_limiter, batch]
+      exporters: [otlp/tempo, spanmetrics]
+
+    # Metrics: OTLP + Prometheus scrape + spanmetrics-generated → Mimir
+    metrics:
+      receivers: [otlp, prometheus, spanmetrics]
+      processors: [memory_limiter, batch]
+      exporters: [otlphttp/mimir]
+
+    # Logs: memory_limiter → resource labels → batch → Loki
+    logs:
+      receivers: [otlp]
+      processors: [memory_limiter, resource, batch]
+      exporters: [otlphttp/loki]
