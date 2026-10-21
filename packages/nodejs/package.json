@@ -4,7 +4,8 @@
   "description": "Zero-boilerplate full-stack OpenTelemetry observability for Node.js microservices targeting the Grafana LGTM stack (Loki, Grafana, Tempo, Mimir)",
   "main": "src/index.js",
   "publishConfig": {
-    "registry": "https://npm.pkg.github.com"
+    "access": "public",
+    "registry": "https://registry.npmjs.org"
   },
   "repository": {
     "type": "git",

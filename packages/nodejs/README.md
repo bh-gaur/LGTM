@@ -8,8 +8,6 @@ Zero-boilerplate, enterprise-grade OpenTelemetry observability library for Node.
 npm install @bh-gaur/lgtm-obs
 ```
 
-> **Note**: This package is hosted on **GitHub Packages**. Ensure you have configured `@bh-gaur:registry=https://npm.pkg.github.com` in your project's `.npmrc`.
-
 ## Quick Start
 
 ```javascript
