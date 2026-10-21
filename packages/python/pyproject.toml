@@ -1,0 +1,43 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "lgtm-obs"
+version = "0.1.0"
+authors = [
+  { name="Vishnu", email="contact@example.com" },
+]
+description = "Zero-boilerplate full-stack OpenTelemetry observability for Python apps targeting the Grafana LGTM stack (Loki, Grafana, Tempo, Mimir)."
+readme = "README.md"
+requires-python = ">=3.8"
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Topic :: System :: Monitoring",
+]
+dependencies = [
+    "opentelemetry-api>=1.24.0",
+    "opentelemetry-sdk>=1.24.0",
+    "opentelemetry-exporter-otlp-proto-http>=1.24.0",
+]
+
+[project.optional-dependencies]
+flask = [
+    "opentelemetry-instrumentation-flask>=0.45b0",
+]
+fastapi = [
+    "opentelemetry-instrumentation-fastapi>=0.45b0",
+]
+all = [
+    "opentelemetry-instrumentation-flask>=0.45b0",
+    "opentelemetry-instrumentation-fastapi>=0.45b0",
+    "opentelemetry-instrumentation-psycopg2>=0.45b0",
+    "opentelemetry-instrumentation-kafka-python>=0.45b0",
+    "opentelemetry-instrumentation-requests>=0.45b0",
+]
+
+[project.urls]
+"Homepage" = "https://github.com/example/lgtm-obs"
+"Bug Tracker" = "https://github.com/example/lgtm-obs/issues"

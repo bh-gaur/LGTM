@@ -1,0 +1,155 @@
+name: Publish LGTM Observability Packages
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Dry Run (validate & build without publishing to registries)'
+        required: true
+        type: boolean
+        default: false
+
+jobs:
+  # =========================================================================
+  # 1. TEST & VALIDATE ALL PACKAGES FIRST
+  # =========================================================================
+  test-packages:
+    name: Test & Validate Packages
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Test Python Package
+        run: |
+          cd packages/python
+          python -m pip install --upgrade pip
+          pip install build twine
+          python -m build
+          twine check dist/*
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Test Node.js Package
+        run: |
+          cd packages/nodejs
+          node --check src/index.js
+          npm pack --dry-run
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.21'
+
+      - name: Test Go Package
+        run: |
+          cd packages/go
+          go mod tidy
+          go vet ./...
+
+  # =========================================================================
+  # 2. PUBLISH PYTHON PACKAGE TO PYPI
+  # =========================================================================
+  publish-pypi:
+    name: Publish to PyPI
+    needs: test-packages
+    runs-on: ubuntu-latest
+    environment: release
+    permissions:
+      id-token: write # Required for PyPI Trusted Publishing (OIDC)
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Build Wheel & Source Distribution
+        run: |
+          cd packages/python
+          python -m pip install --upgrade pip
+          pip install build
+          python -m build
+
+      - name: Publish to PyPI
+        if: ${{ !inputs.dry_run }}
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: packages/python/dist/
+          skip-existing: true
+
+  # =========================================================================
+  # 3. PUBLISH NODE.JS PACKAGE TO NPM
+  # =========================================================================
+  publish-npm:
+    name: Publish to npm
+    needs: test-packages
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          registry-url: 'https://registry.npmjs.org'
+
+      - name: Publish to npm
+        if: ${{ !inputs.dry_run }}
+        run: |
+          cd packages/nodejs
+          npm publish --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+  # =========================================================================
+  # 4. PUBLISH GO MODULE & TAG RELEASE
+  # =========================================================================
+  publish-go:
+    name: Index Go Module (pkg.go.dev)
+    needs: test-packages
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.21'
+
+      - name: Warm up Go Proxy Cache
+        if: ${{ !inputs.dry_run }}
+        run: |
+          # Requests the Go module proxy to immediately index the released version
+          GOPROXY=https://proxy.golang.org go list -m github.com/${{ github.repository }}/packages/go@${{ github.ref_name }} || echo "Index request submitted"
+
+  # =========================================================================
+  # 5. TEST QUICKSTART DOCKER COMPOSE STACK
+  # =========================================================================
+  test-quickstart:
+    name: Validate Quickstart LGTM Stack
+    needs: test-packages
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Validate Docker Compose Config
+        run: |
+          cd quickstart
+          docker compose config --quiet
+          echo "Quickstart docker-compose syntax valid!"

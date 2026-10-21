@@ -91,3 +91,51 @@ jobs:
       - name: Check flake8 Python Code Style
         run: |
           flake8 apps/python-app/app.py apps/notification-service/app.py apps/analytics-service/app.py --count --select=E9,F63,F7,F82 --show-source --statistics
+
+  packages-ci:
+    name: Public Packages Verification
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Codebase
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Verify Python Package Build
+        run: |
+          cd packages/python
+          python -m pip install --upgrade pip
+          pip install build twine
+          python -m build
+          twine check dist/*
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Verify Node.js Package Syntax
+        run: |
+          cd packages/nodejs
+          node --check src/index.js
+          npm pack --dry-run
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.21'
+
+      - name: Verify Go Package Build
+        run: |
+          cd packages/go
+          go mod tidy
+          go vet ./...
+
+      - name: Verify Quickstart Docker Compose
+        run: |
+          cd quickstart
+          docker compose config --quiet
+
