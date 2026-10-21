@@ -64,9 +64,6 @@ jobs:
     name: Publish to PyPI
     needs: test-packages
     runs-on: ubuntu-latest
-    environment: release
-    permissions:
-      id-token: write # Required for PyPI Trusted Publishing (OIDC)
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
@@ -95,6 +92,7 @@ jobs:
         continue-on-error: true
         uses: pypa/gh-action-pypi-publish@release/v1
         with:
+          password: ${{ secrets.PYPI_TOKEN }}
           packages-dir: packages/python/dist/
           skip-existing: true
 
