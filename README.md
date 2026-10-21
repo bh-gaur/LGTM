@@ -4,6 +4,8 @@ A production-ready microservice demonstration of the **Grafana LGTM (Loki, Grafa
 
 Includes an interactive **Glassmorphic Web UI Dashboard** with a **3D WebGL Topology Diagram**, OpenTelemetry distributed tracing, metrics-to-traces exemplars, OTLP log correlation, and a zero-overhead **`ENABLE_OBSERVABILITY` feature flag**.
 
+> 📦 **Want to use the Telemetry SDKs in your own services?** Check out the complete [LGTM Packages Usage Guide (Python, Node.js, Go)](PACKAGES_GUIDE.md).
+
 ---
 
 ## 📐 Architecture & Data Flow Workflow

@@ -5,7 +5,7 @@ Zero-boilerplate, enterprise-grade OpenTelemetry observability library for Go mi
 ## Installation
 
 ```bash
-go get github.com/openlgtm/lgtm-obs-go
+go get github.com/bh-gaur/LGTM/packages/go
 ```
 
 ## Quick Start (Gin Web Framework)
@@ -18,7 +18,7 @@ import (
 	"net/http"
 
 	"github.com/gin-gonic/gin"
-	lgtm "github.com/openlgtm/lgtm-obs-go/lgtmobs"
+	lgtm "github.com/bh-gaur/LGTM/packages/go/lgtmobs"
 )
 
 func main() {

@@ -1,4 +1,4 @@
-module github.com/openlgtm/lgtm-obs-go
+module github.com/bh-gaur/LGTM/packages/go
 
 go 1.21
 
