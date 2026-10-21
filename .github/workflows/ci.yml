@@ -2,9 +2,9 @@ name: LGTM Stack CI Validation
 
 on:
   push:
-    branches: [ main,  add/features]
+    branches: [main, add/features]
   pull_request:
-    branches: [ main, add/features ]
+    branches: [main, add/features]
 
 jobs:
   helm-validation:
@@ -17,7 +17,7 @@ jobs:
       - name: Install Helm
         uses: azure/setup-helm@v4
         with:
-          version: 'v3.12.0'
+          version: "v3.12.0"
 
       - name: Lint Helm Charts
         run: |
@@ -33,7 +33,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: "20"
 
       - name: Validate Gateway Syntax Check
         run: |
@@ -57,7 +57,7 @@ jobs:
       - name: Setup Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.21'
+          go-version: "1.21"
 
       - name: Build Go App
         run: |
@@ -81,7 +81,7 @@ jobs:
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
+          python-version: "3.11"
 
       - name: Install Linting Packages
         run: |
@@ -102,7 +102,7 @@ jobs:
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
+          python-version: "3.11"
 
       - name: Verify Python Package Build
         run: |
@@ -115,7 +115,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: "20"
 
       - name: Verify Node.js Package Syntax
         run: |
@@ -126,7 +126,7 @@ jobs:
       - name: Setup Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.21'
+          go-version: "1.21"
 
       - name: Verify Go Package Build
         run: |
@@ -138,4 +138,3 @@ jobs:
         run: |
           cd quickstart
           docker compose config --quiet
-
