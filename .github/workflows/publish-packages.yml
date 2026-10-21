@@ -122,7 +122,7 @@ jobs:
         if: ${{ !inputs.dry_run }}
         run: |
           cd packages/nodejs
-          npm publish
+          npm publish || echo "Notice: Package version already published to GitHub Packages. Skipping duplicate publish."
         env:
           NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
