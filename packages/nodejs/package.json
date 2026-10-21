@@ -1,8 +1,15 @@
 {
-  "name": "lgtm-obs",
+  "name": "@bh-gaur/lgtm-obs",
   "version": "0.1.0",
   "description": "Zero-boilerplate full-stack OpenTelemetry observability for Node.js microservices targeting the Grafana LGTM stack (Loki, Grafana, Tempo, Mimir)",
   "main": "src/index.js",
+  "publishConfig": {
+    "registry": "https://npm.pkg.github.com"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/bh-gaur/LGTM.git"
+  },
   "scripts": {
     "test": "node test.js"
   },

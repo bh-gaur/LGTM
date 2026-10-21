@@ -91,12 +91,15 @@ jobs:
           skip-existing: true
 
   # =========================================================================
-  # 3. PUBLISH NODE.JS PACKAGE TO NPM
+  # 3. PUBLISH NODE.JS PACKAGE TO GITHUB PACKAGES
   # =========================================================================
   publish-npm:
-    name: Publish to npm
+    name: Publish to GitHub Packages
     needs: test-packages
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
@@ -105,15 +108,15 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: '20'
-          registry-url: 'https://registry.npmjs.org'
+          registry-url: 'https://npm.pkg.github.com'
 
-      - name: Publish to npm
+      - name: Publish to GitHub Packages
         if: ${{ !inputs.dry_run }}
         run: |
           cd packages/nodejs
-          npm publish --access public
+          npm publish
         env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   # =========================================================================
   # 4. PUBLISH GO MODULE & TAG RELEASE

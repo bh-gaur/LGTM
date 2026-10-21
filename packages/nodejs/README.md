@@ -1,18 +1,20 @@
-# lgtm-obs (Node.js)
+# @bh-gaur/lgtm-obs (Node.js)
 
 Zero-boilerplate, enterprise-grade OpenTelemetry observability library for Node.js microservices targeting the **Grafana LGTM stack** (Loki, Grafana, Tempo, Mimir).
 
 ## Installation
 
 ```bash
-npm install lgtm-obs
+npm install @bh-gaur/lgtm-obs
 ```
+
+> **Note**: This package is hosted on **GitHub Packages**. Ensure you have configured `@bh-gaur:registry=https://npm.pkg.github.com` in your project's `.npmrc`.
 
 ## Quick Start
 
 ```javascript
 // MUST be the very first import before any other libraries
-const { initObservability, logger, api } = require('lgtm-obs');
+const { initObservability, logger, api } = require('@bh-gaur/lgtm-obs');
 
 initObservability({
   serviceName: 'gateway-service',
